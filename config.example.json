@@ -1,13 +1,13 @@
 {
-  "name": "Innei's Afilmory",
-  "title": "Innei's Afilmory",
+  "name": "Hyman's Afilmory",
+  "title": "Hyman's Afilmory",
   "description": "Capturing beautiful moments in life, documenting daily warmth and emotions through my lens.",
-  "url": "https://afilmory.innei.in/",
+  "url": "https://gallery.woodbrook.cn/",
   "accentColor": "#007bff",
   "author": {
-    "name": "Innei",
-    "url": "https://innei.in/",
-    "avatar": "https://cdn.jsdelivr.net/gh/Innei/static@master/avatar.png"
+    "name": "Hyman",
+    "url": "http://www.woodbrook.cn/",
+    "avatar": "https://cdn.jsdelivr.net/gh/nlhm/static@master/avatar.png"
   },
   "social": {
     "github": "",
