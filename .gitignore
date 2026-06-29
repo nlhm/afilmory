@@ -34,3 +34,7 @@ functions/
 
 # superpowers brainstorming workspace
 .superpowers/
+
+# Idea
+.idea
+tasks/

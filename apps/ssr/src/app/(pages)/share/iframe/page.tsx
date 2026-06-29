@@ -1,7 +1,10 @@
 import type { PhotoManifestItem } from '@afilmory/builder'
 import siteConfig from '@config'
+import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 
+import { getGalleryAccessConfig } from '~/lib/gallery-access/config'
+import { GALLERY_ACCESS_COOKIE_NAME, verifyGallerySessionToken } from '~/lib/gallery-access/session'
 import { photoLoader } from '~/lib/photo-loader'
 
 import { Collection } from './Collection'
@@ -34,6 +37,13 @@ function parseIdList(value: RawParam): string[] {
 }
 
 export default async function Page({ searchParams }: NextPageExtractedParams<unknown>) {
+  const cookieStore = await cookies()
+  const { sessionSecret } = getGalleryAccessConfig()
+  const token = cookieStore.get(GALLERY_ACCESS_COOKIE_NAME)?.value
+  if (!token || !verifyGallerySessionToken(token, sessionSecret)) {
+    notFound()
+  }
+
   const params = (await searchParams) as Record<string, RawParam>
 
   const single = asString(params.id)

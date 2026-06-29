@@ -1,66 +1,48 @@
 import type { PhotoManifestItem } from '@afilmory/builder'
 import siteConfig from '@config'
-import { DOMParser } from 'linkedom'
 import type { NextRequest } from 'next/server'
 
 import indexHtml from '~/index.html'
-import { injectConfigToDocument } from '~/lib/injectable'
+import { renderGalleryHtml } from '~/lib/gallery-access/gallery-html'
+import type { HtmlDocument } from '~/lib/html-document'
 import { photoLoader } from '~/lib/photo-loader'
-
-type HtmlElement = ReturnType<typeof DOMParser.prototype.parseFromString>
-type OnlyHTMLDocument = HtmlElement extends infer T ? (T extends { [key: string]: any; head: any } ? T : never) : never
 
 export const handler = async (request: NextRequest, { params }: { params: Promise<{ photoId: string }> }) => {
   const { photoId } = await params
 
   const photo = photoLoader.getPhoto(photoId)
   if (!photo) {
-    return new Response(indexHtml, {
-      headers: { 'Content-Type': 'text/html' },
-      status: 404,
-    })
+    return renderGalleryHtml(indexHtml, { status: 404 })
   }
 
   try {
-    const document = new DOMParser().parseFromString(indexHtml, 'text/html')
-
-    // Remove all twitter meta tags and open graph meta tags
-    document.head.childNodes.forEach((node) => {
-      if (node.nodeName === 'META') {
-        const $meta = node as HTMLMetaElement
-        if ($meta.getAttribute('name')?.startsWith('twitter:')) {
-          $meta.remove()
-        }
-        if ($meta.getAttribute('property')?.startsWith('og:')) {
-          $meta.remove()
-        }
-      }
-    })
-    document.head.title = `${photo.id} | ${siteConfig.title}`
-    // Insert meta open graph tags and twitter meta tags
-    createAndInsertOpenGraphMeta(document, photo, request)
-
-    injectConfigToDocument(document)
-
-    return new Response(document.documentElement.outerHTML, {
-      headers: {
-        'Content-Type': 'text/html',
-        'X-SSR': '1',
+    return renderGalleryHtml(indexHtml, {
+      mutateDocument(document) {
+        // Remove all twitter meta tags and open graph meta tags
+        document.head.childNodes.forEach((node) => {
+          if (node.nodeName === 'META') {
+            const $meta = node as HTMLMetaElement
+            if ($meta.getAttribute('name')?.startsWith('twitter:')) {
+              $meta.remove()
+            }
+            if ($meta.getAttribute('property')?.startsWith('og:')) {
+              $meta.remove()
+            }
+          }
+        })
+        document.head.title = `${photo.id} | ${siteConfig.title}`
+        createAndInsertOpenGraphMeta(document, photo, request)
       },
     })
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Error generating SSR page:', error)
-    console.info('Falling back to static index.html')
-    console.info(error.message)
 
-    return new Response(indexHtml, {
-      headers: { 'Content-Type': 'text/html' },
-      status: 500,
-    })
+    return renderGalleryHtml(indexHtml, { status: 500 })
   }
 }
 
-const createAndInsertOpenGraphMeta = (document: OnlyHTMLDocument, photo: PhotoManifestItem, request: NextRequest) => {
+const createAndInsertOpenGraphMeta = (document: HtmlDocument, photo: PhotoManifestItem, request: NextRequest) => {
   // Open Graph meta tags
 
   // X forward host

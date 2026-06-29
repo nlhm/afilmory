@@ -1,6 +1,9 @@
 import { hostname } from 'node:os'
+import process from 'node:process'
 
 import type { NextRequest } from 'next/server'
+
+import { requireGallerySession } from '~/lib/gallery-access/request'
 
 function getDefaultCoreApiBase(): string {
   // In Docker, HOSTNAME is set to the container ID, and localhost may not resolve correctly (IPv6 issues).
@@ -10,11 +13,11 @@ function getDefaultCoreApiBase(): string {
   return `http://${host}:3000`
 }
 
-const CORE_API_BASE =
-  process.env.CORE_API_URL ??
-  process.env.NEXT_PUBLIC_CORE_API_URL ??
-  process.env.API_BASE_URL ??
-  getDefaultCoreApiBase()
+const CORE_API_BASE
+  = process.env.CORE_API_URL
+    ?? process.env.NEXT_PUBLIC_CORE_API_URL
+    ?? process.env.API_BASE_URL
+    ?? getDefaultCoreApiBase()
 
 const FORWARDED_HEADER_KEYS = ['cookie', 'authorization', 'x-forwarded-host', 'x-forwarded-proto', 'host']
 
@@ -49,6 +52,11 @@ function buildForwardHeaders(request: NextRequest): Headers {
 export const revalidate = 0
 
 export const GET = async (request: NextRequest, { params }: { params: Promise<{ photoId: string }> }) => {
+  const unauthorized = requireGallerySession(request)
+  if (unauthorized) {
+    return unauthorized
+  }
+
   const { photoId } = await params
   const targetUrl = buildBackendUrl(photoId)
 
@@ -59,12 +67,18 @@ export const GET = async (request: NextRequest, { params }: { params: Promise<{ 
   if (!response.ok) {
     return new Response(await response.text(), {
       status: response.status,
-      headers: response.headers,
+      headers: {
+        'Cache-Control': 'private, no-store',
+        'Content-Type': response.headers.get('content-type') || 'text/plain; charset=utf-8',
+      },
     })
   }
 
   return new Response(response.body, {
     status: response.status,
-    headers: response.headers,
+    headers: {
+      'Cache-Control': 'private, no-store',
+      'Content-Type': response.headers.get('content-type') || 'image/png',
+    },
   })
 }

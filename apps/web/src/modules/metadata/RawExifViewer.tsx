@@ -21,12 +21,14 @@ interface RawExifViewerProps {
 type ParsedExifData = Record<string, string | number | boolean | null>
 
 const parseRawExifData = (rawData: string): ParsedExifData => {
-  const lines = rawData.split('\n').filter((line) => line.trim())
+  const lines = rawData.split('\n').filter(line => line.trim())
   const data: ParsedExifData = {}
 
   for (const line of lines) {
     const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) continue
+    if (colonIndex === -1) {
+      continue
+    }
 
     const key = line.slice(0, Math.max(0, colonIndex)).trim()
     const value = line.slice(Math.max(0, colonIndex + 1)).trim()
@@ -39,7 +41,7 @@ const parseRawExifData = (rawData: string): ParsedExifData => {
   return data
 }
 
-const ExifDataRow = ({ label, value }: { label: string; value: string }) => (
+const ExifDataRow = ({ label, value }: { label: string, value: string }) => (
   <div className="flex items-center justify-between border-b border-white/15 py-2 last:border-b-0">
     <span className="max-w-[45%] min-w-0 flex-shrink-0 self-start pr-4 text-sm font-medium break-words text-white/70">
       {label}
@@ -302,18 +304,21 @@ export const RawExifViewer: React.FC<RawExifViewerProps> = ({ currentPhoto }) =>
     try {
       const response = await fetch(currentPhoto.originalUrl)
       const blob = await response.blob()
-      const data = await ExifToolManager.parse(blob, currentPhoto.s3Key)
+      const filename = `${currentPhoto.id}.${currentPhoto.format.toLowerCase()}`
+      const data = await ExifToolManager.parse(blob, filename)
 
       setRawExifData(data || null)
       setIsOpen(true)
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to parse EXIF data:', error)
       toast.error(
         t('exif.raw.parse.error', {
           defaultValue: 'Failed to parse EXIF data',
         }),
       )
-    } finally {
+    }
+    finally {
       setIsLoading(false)
     }
   }
@@ -322,12 +327,12 @@ export const RawExifViewer: React.FC<RawExifViewerProps> = ({ currentPhoto }) =>
   const dataEntries = Object.entries(parsedData)
 
   const getCategoryData = (categoryKeys: string[]) => {
-    return dataEntries.filter(([key]) => categoryKeys.some((catKey) => key.includes(catKey)))
+    return dataEntries.filter(([key]) => categoryKeys.some(catKey => key.includes(catKey)))
   }
 
   const getUncategorizedData = () => {
     const allCategoryKeys = Object.values(categories).flat()
-    return dataEntries.filter(([key]) => !allCategoryKeys.some((catKey) => key.includes(catKey)))
+    return dataEntries.filter(([key]) => !allCategoryKeys.some(catKey => key.includes(catKey)))
   }
 
   return (

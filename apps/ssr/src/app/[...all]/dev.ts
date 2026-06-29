@@ -1,10 +1,11 @@
 import { extname } from 'node:path'
+import process from 'node:process'
 
 import { DOMParser } from 'linkedom'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-import { injectConfigToDocument } from '~/lib/injectable'
+import { injectGalleryDataToDocument } from '~/lib/gallery-access/gallery-html'
 
 const host = 'http://localhost:13333'
 export const handler = async (req: NextRequest) => {
@@ -38,15 +39,17 @@ async function proxyAssets(req: NextRequest) {
   const url = new URL(req.url)
   const { pathname } = url
   const response = await fetch(host + pathname)
+  const headers = new Headers(response.headers)
+  headers.set('Cache-Control', 'private, no-store')
   return new NextResponse(response.body, {
-    headers: response.headers,
+    headers,
     status: response.status,
     statusText: response.statusText,
   })
 }
 
 async function proxyIndexHtml() {
-  const htmlText = await fetch(host).then((res) => res.text())
+  const htmlText = await fetch(host).then(res => res.text())
 
   const parser = new DOMParser()
   const document = parser.parseFromString(htmlText, 'text/html')
@@ -73,10 +76,14 @@ async function proxyIndexHtml() {
       .replace('/@react-refresh', `${host}/@react-refresh`)
   })
 
-  injectConfigToDocument(document)
+  injectGalleryDataToDocument(document)
 
   return new NextResponse(document.documentElement.outerHTML, {
-    headers: { 'Content-Type': 'text/html' },
+    headers: {
+      'Cache-Control': 'private, no-store',
+      'Content-Type': 'text/html; charset=utf-8',
+      'X-SSR': '1',
+    },
   })
 }
 const replaceUrl = (url: string, host: string) => {

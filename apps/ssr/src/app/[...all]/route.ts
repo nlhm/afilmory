@@ -1,30 +1,33 @@
-import { DOMParser } from 'linkedom'
+import process from 'node:process'
+
 import type { NextRequest } from 'next/server'
 
-import { injectConfigToDocument } from '~/lib/injectable'
+import { renderGalleryHtml } from '~/lib/gallery-access/gallery-html'
+import { requireGalleryHtmlSession, requireGallerySession } from '~/lib/gallery-access/request'
 
 const renderIndex = async () => {
-  const indexHtml = await import('../../index.html').then((m) => m.default)
-  const document = new DOMParser().parseFromString(indexHtml, 'text/html')
-  injectConfigToDocument(document)
-  return new Response(document.documentElement.outerHTML, {
-    headers: {
-      'Content-Type': 'text/html',
-      'X-SSR': '1',
-    },
-  })
+  const indexHtml = await import('../../index.html').then(m => m.default)
+  return renderGalleryHtml(indexHtml)
 }
 
 const handler = async (req: NextRequest) => {
+  const acceptsHtml = req.headers.get('accept')?.includes('text/html')
+  const unauthorized
+    = acceptsHtml && (req.method === 'GET' || req.method === 'HEAD')
+      ? requireGalleryHtmlSession(req)
+      : requireGallerySession(req)
+  if (unauthorized) {
+    return unauthorized
+  }
+
   if (process.env.NODE_ENV === 'development') {
-    return import('./dev').then((m) => m.handler(req))
+    return import('./dev').then(m => m.handler(req))
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return new Response(null, { status: 404 })
   }
 
-  const acceptsHtml = req.headers.get('accept')?.includes('text/html')
   if (!acceptsHtml) {
     return new Response(null, { status: 404 })
   }

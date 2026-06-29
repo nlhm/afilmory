@@ -1,12 +1,19 @@
 import { SHARE_EMBED_SCRIPT } from '@afilmory/sdk'
 
-export const dynamic = 'force-static'
+import { requireGallerySession } from '~/lib/gallery-access/request'
 
-export async function GET() {
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: Request) {
+  const unauthorized = requireGallerySession(request)
+  if (unauthorized) {
+    return unauthorized
+  }
+
   return new Response(SHARE_EMBED_SCRIPT, {
     headers: {
       'Content-Type': 'text/javascript; charset=utf-8',
-      'Cache-Control': 'public, max-age=300, s-maxage=86400',
+      'Cache-Control': 'private, no-store',
     },
   })
 }

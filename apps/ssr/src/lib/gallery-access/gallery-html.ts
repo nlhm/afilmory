@@ -1,0 +1,39 @@
+import rawManifest from '@afilmory/data/manifest'
+import { DOMParser } from 'linkedom'
+
+import type { HtmlDocument } from '../html-document'
+import { injectConfigToDocument } from '../injectable'
+import type { ServerGalleryManifest } from './manifest'
+import { injectManifestToDocument } from './manifest'
+
+type GalleryDocument = HtmlDocument
+
+interface RenderGalleryHtmlOptions {
+  manifest?: ServerGalleryManifest
+  mutateDocument?: (document: GalleryDocument) => void
+  status?: number
+}
+
+export const injectGalleryDataToDocument = (
+  document: GalleryDocument,
+  manifest: ServerGalleryManifest = rawManifest as unknown as ServerGalleryManifest,
+) => {
+  injectConfigToDocument(document)
+  injectManifestToDocument(document, manifest)
+  return document
+}
+
+export const renderGalleryHtml = (indexHtml: string, options: RenderGalleryHtmlOptions = {}) => {
+  const document = new DOMParser().parseFromString(indexHtml, 'text/html')
+  options.mutateDocument?.(document)
+  injectGalleryDataToDocument(document, options.manifest)
+
+  return new Response(document.documentElement.outerHTML, {
+    headers: {
+      'Cache-Control': 'private, no-store',
+      'Content-Type': 'text/html; charset=utf-8',
+      'X-SSR': '1',
+    },
+    status: options.status,
+  })
+}
