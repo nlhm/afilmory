@@ -18,5 +18,4 @@ export async function logoutGalleryAccess() {
   await fetch('/api/gallery-access/logout', {
     method: 'POST',
   })
-  await purgeLegacyPhotoCaches()
 }

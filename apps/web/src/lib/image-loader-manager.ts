@@ -5,6 +5,7 @@ import { imageConverterManager } from '~/lib/image-convert'
 import { jotaiStore } from '~/lib/jotai'
 import { LRUCache } from '~/lib/lru-cache'
 import { extractMotionPhotoVideo } from '~/lib/motion-photo-extractor'
+import { cacheProtectedMediaBlob, getProtectedMediaBlob } from '~/lib/protected-media-cache'
 import { convertMovToMp4, needsVideoConversion } from '~/lib/video-converter'
 import type { VideoSource } from '~/modules/viewer/types'
 
@@ -106,10 +107,21 @@ export class ImageLoaderManager {
   async loadImage(src: string, callbacks: LoadingCallbacks = {}): Promise<ImageLoadResult> {
     const { onProgress, onError, onLoadingStateUpdate } = callbacks
 
+    const memoryCachedResult = regularImageCache.get(generateRegularImageCacheKey(src))
+    if (memoryCachedResult) {
+      onLoadingStateUpdate?.({ isVisible: false })
+      return { blobSrc: memoryCachedResult.blobSrc }
+    }
+
     // Show loading indicator
     onLoadingStateUpdate?.({
       isVisible: true,
     })
+
+    const persistedBlob = await getProtectedMediaBlob(src)
+    if (persistedBlob) {
+      return await this.processImageBlob(persistedBlob, src, callbacks)
+    }
 
     return new Promise((resolve, reject) => {
       this.delayTimer = setTimeout(async () => {
@@ -130,6 +142,8 @@ export class ImageLoaderManager {
                 reject(new Error('Response is not a valid image'))
                 return
               }
+
+              void cacheProtectedMediaBlob(src, blob)
 
               const result = await this.processImageBlob(
                 blob,
