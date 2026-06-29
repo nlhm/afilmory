@@ -4,9 +4,11 @@ import path from 'node:path'
 
 import type { ServerGalleryManifest } from './manifest'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
 const MANIFEST_CANDIDATE_PATHS = [
-  fileURLToPath(new URL('../../../web/src/data/photos-manifest.json', import.meta.url)),
-  fileURLToPath(new URL('../../../../packages/data/src/photos-manifest.json', import.meta.url)),
+  path.resolve(__dirname, '../../../web/src/data/photos-manifest.json'),
+  path.resolve(__dirname, '../../../../packages/data/src/photos-manifest.json'),
   path.resolve(process.cwd(), 'src/data/photos-manifest.json'),
 ]
 
