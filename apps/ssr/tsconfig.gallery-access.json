@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "scripts/generate-gallery-password-hash.ts",
+    "src/env.ts",
+    "src/lib/gallery-access/**/*.ts",
+    "src/app/api/gallery-access/**/*.ts",
+    "src/app/(pages)/access/**/*.tsx"
+  ],
+  "exclude": ["node_modules"]
+}

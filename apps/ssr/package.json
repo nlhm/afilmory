@@ -16,7 +16,10 @@
     "dev": "concurrently \"pnpm run dev:web\" \"pnpm run dev:next\"",
     "dev:next": "next dev --turbo --port 1924",
     "dev:web": "cross-env DEV_NEXT_JS=true pnpm --filter web dev",
-    "start": "next start"
+    "gallery-access:hash": "tsx scripts/generate-gallery-password-hash.ts",
+    "start": "next start",
+    "test:gallery-access": "tsx --test src/lib/gallery-access/*.test.ts",
+    "type-check:gallery-access": "tsc --noEmit -p tsconfig.gallery-access.json"
   },
   "dependencies": {
     "@afilmory/data": "workspace:*",
