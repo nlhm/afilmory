@@ -5,7 +5,7 @@ import { injectConfigToDocument } from '../injectable'
 import type { ServerGalleryManifest } from './manifest'
 import { injectManifestToDocument } from './manifest'
 import { injectPrivateGalleryRobotsMeta, PRIVATE_GALLERY_ROBOTS_CONTENT } from './privacy'
-import { serverManifest } from './server-manifest'
+import { getServerManifest } from './server-manifest'
 
 type GalleryDocument = HtmlDocument
 
@@ -17,10 +17,10 @@ interface RenderGalleryHtmlOptions {
 
 export const injectGalleryDataToDocument = (
   document: GalleryDocument,
-  manifest: ServerGalleryManifest = serverManifest,
+  manifest?: ServerGalleryManifest,
 ) => {
   injectConfigToDocument(document)
-  injectManifestToDocument(document, manifest)
+  injectManifestToDocument(document, manifest ?? getServerManifest())
   injectPrivateGalleryRobotsMeta(document)
   return document
 }

@@ -1,8 +1,9 @@
 import process from 'node:process'
 
-import { env } from '@env'
+import { getEnv } from '@env'
 
 export const getGalleryAccessConfig = () => {
+  const env = getEnv()
   if (!env.GALLERY_PASSWORD_HASH || !env.GALLERY_SESSION_SECRET) {
     throw new Error('Gallery access is not configured. Set GALLERY_PASSWORD_HASH and GALLERY_SESSION_SECRET.')
   }
