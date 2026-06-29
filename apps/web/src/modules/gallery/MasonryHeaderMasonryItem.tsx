@@ -41,7 +41,6 @@ export const MasonryHeaderMasonryItem = ({ style, className }: { style?: React.C
     siteConfig.social && siteConfig.social.twitter
       ? resolveSocialUrl(siteConfig.social.twitter, { baseUrl: 'https://twitter.com/', stripAt: true })
       : undefined
-  const hasRss = true
 
   return (
     <div
@@ -77,7 +76,7 @@ export const MasonryHeaderMasonryItem = ({ style, className }: { style?: React.C
         <h2 className="mt-1 mb-1 text-2xl font-semibold text-gray-900 dark:text-white">{siteConfig.name}</h2>
 
         {/* Social media links */}
-        {(githubUrl || twitterUrl || hasRss) && (
+        {(githubUrl || twitterUrl) && (
           <div className="mt-1 mb-3 flex items-center justify-center gap-3">
             {githubUrl && (
               <a
@@ -99,16 +98,6 @@ export const MasonryHeaderMasonryItem = ({ style, className }: { style?: React.C
                 title="Twitter"
               >
                 <i className="i-mingcute-twitter-fill text-sm" />
-              </a>
-            )}
-            {hasRss && (
-              <a
-                href="/feed.xml"
-                target="_blank"
-                className="text-text-secondary flex items-center justify-center p-2 duration-200 hover:text-[#ec672c]"
-                title="RSS"
-              >
-                <i className="i-mingcute-rss-2-fill text-sm" />
               </a>
             )}
           </div>

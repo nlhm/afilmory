@@ -5,8 +5,14 @@ import type { Metadata } from 'next'
 export const metadata: Metadata = {
   description: 'Private gallery access',
   robots: {
+    googleBot: {
+      follow: false,
+      index: false,
+      noarchive: true,
+    },
     follow: false,
     index: false,
+    noarchive: true,
   },
   title: 'Private gallery · Afilmory',
 }

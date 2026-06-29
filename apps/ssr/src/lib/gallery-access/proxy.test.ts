@@ -21,6 +21,7 @@ const createRequest = (path: string, options: { accept?: string, cookie?: string
 test('proxy public allowlist contains access dependencies but not protected media', () => {
   assert.equal(isPublicGalleryPath('/access'), true)
   assert.equal(isPublicGalleryPath('/api/gallery-access/unlock'), true)
+  assert.equal(isPublicGalleryPath('/robots.txt'), true)
   assert.equal(isPublicGalleryPath('/_next/static/chunks/app.js'), true)
   assert.equal(isPublicGalleryPath('/assets/app.js'), true)
   assert.equal(isPublicGalleryPath('/thumbnails/private.jpg'), false)

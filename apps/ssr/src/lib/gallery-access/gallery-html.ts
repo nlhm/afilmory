@@ -1,10 +1,11 @@
-import rawManifest from '@afilmory/data/manifest'
 import { DOMParser } from 'linkedom'
 
 import type { HtmlDocument } from '../html-document'
 import { injectConfigToDocument } from '../injectable'
 import type { ServerGalleryManifest } from './manifest'
 import { injectManifestToDocument } from './manifest'
+import { injectPrivateGalleryRobotsMeta, PRIVATE_GALLERY_ROBOTS_CONTENT } from './privacy'
+import { serverManifest } from './server-manifest'
 
 type GalleryDocument = HtmlDocument
 
@@ -16,10 +17,11 @@ interface RenderGalleryHtmlOptions {
 
 export const injectGalleryDataToDocument = (
   document: GalleryDocument,
-  manifest: ServerGalleryManifest = rawManifest as unknown as ServerGalleryManifest,
+  manifest: ServerGalleryManifest = serverManifest,
 ) => {
   injectConfigToDocument(document)
   injectManifestToDocument(document, manifest)
+  injectPrivateGalleryRobotsMeta(document)
   return document
 }
 
@@ -32,6 +34,7 @@ export const renderGalleryHtml = (indexHtml: string, options: RenderGalleryHtmlO
     headers: {
       'Cache-Control': 'private, no-store',
       'Content-Type': 'text/html; charset=utf-8',
+      'X-Robots-Tag': PRIVATE_GALLERY_ROBOTS_CONTENT,
       'X-SSR': '1',
     },
     status: options.status,

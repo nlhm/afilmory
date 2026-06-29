@@ -15,6 +15,7 @@ const PUBLIC_EXACT_PATHS = new Set([
   '/favicon-32x32.png',
   '/favicon-48x48.png',
   '/favicon.ico',
+  '/robots.txt',
   '/site.webmanifest',
 ])
 

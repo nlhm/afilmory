@@ -18,6 +18,7 @@ import { sessionUserAtom } from '~/atoms/session'
 import { injectConfig, siteConfig } from '~/config'
 import { useMobile } from '~/hooks/useMobile'
 import { authApi } from '~/lib/api/auth'
+import { logoutGalleryAccess } from '~/lib/gallery-access'
 
 import { UserAvatar } from '../../social/comments/UserAvatar'
 import { ViewPanel } from '../panels/ViewPanel'
@@ -80,6 +81,18 @@ export const PageHeaderRight = () => {
         )}
 
         {isMobile && <MoreActionMenu />}
+
+        {injectConfig.useNext && (
+          <ActionIconButton
+            icon="i-mingcute-lock-line"
+            title={t('action.signOut')}
+            onClick={() => {
+              void logoutGalleryAccess().finally(() => {
+                window.location.assign('/access')
+              })
+            }}
+          />
+        )}
       </div>
 
       {/* Auth Section - Only show when useCloud is true */}
@@ -104,8 +117,6 @@ const MoreActionMenu = () => {
     = siteConfig.social && siteConfig.social.twitter
       ? resolveSocialUrl(siteConfig.social.twitter, { baseUrl: 'https://twitter.com/', stripAt: true })
       : undefined
-  const hasRss = true
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -140,7 +151,7 @@ const MoreActionMenu = () => {
           {settings.viewMode === 'list' && <i className="i-mingcute-check-line text-base" />}
         </DropdownMenuItem>
 
-        {(githubUrl || twitterUrl || hasRss) && <DropdownMenuSeparator />}
+        {(githubUrl || twitterUrl || injectConfig.useNext) && <DropdownMenuSeparator />}
 
         {githubUrl && (
           <DropdownMenuItem asChild>
@@ -158,12 +169,18 @@ const MoreActionMenu = () => {
             </a>
           </DropdownMenuItem>
         )}
-        {hasRss && (
-          <DropdownMenuItem asChild>
-            <a href="/feed.xml" target="_blank" rel="noreferrer" className="flex items-center gap-2">
-              <i className="i-mingcute-rss-2-fill text-base" />
-              RSS
-            </a>
+        {injectConfig.useNext && (
+          <DropdownMenuItem
+            onClick={() => {
+              void logoutGalleryAccess().finally(() => {
+                window.location.assign('/access')
+              })
+            }}
+          >
+            <span className="flex items-center gap-2">
+              <i className="i-mingcute-lock-line text-base" />
+              {t('action.signOut')}
+            </span>
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

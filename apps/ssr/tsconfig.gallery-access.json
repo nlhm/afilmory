@@ -7,12 +7,14 @@
     "next-env.d.ts",
     "scripts/generate-gallery-password-hash.ts",
     "src/proxy.ts",
+    "src/app/robots.ts",
     "src/env.ts",
     "src/types/data-manifest.d.ts",
     "src/lib/html-document.ts",
     "src/lib/inline-script.ts",
     "src/lib/gallery-access/**/*.ts",
     "src/app/api/gallery-access/**/*.ts",
+    "src/app/api/media/**/*.ts",
     "src/app/(pages)/access/**/*.tsx"
   ],
   "exclude": ["node_modules"]

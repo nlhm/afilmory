@@ -100,8 +100,9 @@ const staticWebBuildPlugins: PluginOption[] = [
     workbox: {
       maximumFileSizeToCacheInBytes: 10 * 1024 * 1024, // 10MB
       navigateFallback: '',
-      globPatterns: ['**/*.{js,css,ico,png,svg,webp}'],
-      globIgnores: ['**/*.{jpg,jpeg}'], // 忽略大图片文件
+      cleanupOutdatedCaches: true,
+      globPatterns: ['**/*.{js,css,ico,svg,webmanifest}'],
+      globIgnores: ['**/*.{jpg,jpeg,png,webp,xml,txt,html,json}'],
       runtimeCaching: [
         {
           urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -122,17 +123,6 @@ const staticWebBuildPlugins: PluginOption[] = [
             expiration: {
               maxEntries: 10,
               maxAgeSeconds: 60 * 60 * 24 * 365, // <== 365 days
-            },
-          },
-        },
-        {
-          urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/,
-          handler: 'CacheFirst',
-          options: {
-            cacheName: 'images-cache',
-            expiration: {
-              maxEntries: 100,
-              maxAgeSeconds: 60 * 60 * 24 * 30, // <== 30 days
             },
           },
         },

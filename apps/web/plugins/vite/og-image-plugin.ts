@@ -1,6 +1,5 @@
 import type { Plugin } from 'vite'
 
-import { cleanupOldOGImages } from '../../../../scripts/cleanup-og-images.js'
 import { generateFavicons } from '../../../../scripts/generate-favicon.js'
 import { generateOGImage } from '../../../../scripts/generate-og-image.js'
 
@@ -37,14 +36,10 @@ export function ogImagePlugin(options: OGImagePluginOptions = {}): Plugin {
           title,
           description,
           outputPath: fileName,
-          includePhotos: true,
-          photoCount: 4,
+          includePhotos: false,
         })
         ogImagePath = `/${fileName}`
         console.info(`🖼️  OG image generated: ${ogImagePath}`)
-
-        // 清理旧的 OG 图片
-        await cleanupOldOGImages(3)
       } catch (error) {
         console.error('Failed to generate OG image:', error)
       }
@@ -78,7 +73,8 @@ export function ogImagePlugin(options: OGImagePluginOptions = {}): Plugin {
     <meta name="description" content="${description}" />
     <meta name="author" content="${siteName}" />
     <meta name="generator" content="Vite + React" />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="googlebot" content="noindex, nofollow, noarchive" />
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="msapplication-TileColor" content="#0a0a0a" />
     

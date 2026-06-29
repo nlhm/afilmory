@@ -16,7 +16,6 @@ export const PageHeaderLeft = () => {
     siteConfig.social && siteConfig.social.twitter
       ? resolveSocialUrl(siteConfig.social.twitter, { baseUrl: 'https://twitter.com/', stripAt: true })
       : undefined
-  const hasRss = true
 
   return (
     <div className="flex items-center gap-2">
@@ -42,11 +41,10 @@ export const PageHeaderLeft = () => {
         <h1 className="truncate text-sm font-semibold text-white lg:text-base">{siteConfig.name}</h1>
         <span className="text-xs text-white/40 lg:text-sm">{visiblePhotoCount}</span>
       </div>
-      {(githubUrl || twitterUrl || hasRss) && (
+      {(githubUrl || twitterUrl) && (
         <div className="ml-1 hidden items-center gap-1 border-l border-white/10 pl-2 lg:flex">
           {githubUrl && <SocialIconButton icon="i-mingcute-github-fill" title="GitHub" href={githubUrl} />}
           {twitterUrl && <SocialIconButton icon="i-mingcute-twitter-fill" title="Twitter" href={twitterUrl} />}
-          {hasRss && <SocialIconButton icon="i-mingcute-rss-2-fill" title="RSS" href="/feed.xml" />}
         </div>
       )}
     </div>

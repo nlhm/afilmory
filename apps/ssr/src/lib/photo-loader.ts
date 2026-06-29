@@ -1,5 +1,6 @@
 import type { PhotoManifestItem } from '@afilmory/builder'
-import __MANIFEST__ from '@afilmory/data/manifest'
+
+import { serverManifest } from './gallery-access/server-manifest'
 
 class PhotoLoader {
   private photos: PhotoManifestItem[] = []
@@ -10,7 +11,7 @@ class PhotoLoader {
     this.getPhotos = this.getPhotos.bind(this)
     this.getPhoto = this.getPhoto.bind(this)
 
-    this.photos = __MANIFEST__.data as unknown as PhotoManifestItem[]
+    this.photos = serverManifest.data as unknown as PhotoManifestItem[]
 
     this.photos.forEach((photo) => {
       this.photoMap[photo.id] = photo

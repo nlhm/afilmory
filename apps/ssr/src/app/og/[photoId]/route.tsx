@@ -4,6 +4,7 @@ import process from 'node:process'
 import type { NextRequest } from 'next/server'
 
 import { requireGallerySession } from '~/lib/gallery-access/request'
+import { PRIVATE_GALLERY_ROBOTS_CONTENT } from '~/lib/gallery-access/privacy'
 
 function getDefaultCoreApiBase(): string {
   // In Docker, HOSTNAME is set to the container ID, and localhost may not resolve correctly (IPv6 issues).
@@ -70,6 +71,7 @@ export const GET = async (request: NextRequest, { params }: { params: Promise<{ 
       headers: {
         'Cache-Control': 'private, no-store',
         'Content-Type': response.headers.get('content-type') || 'text/plain; charset=utf-8',
+        'X-Robots-Tag': PRIVATE_GALLERY_ROBOTS_CONTENT,
       },
     })
   }
@@ -79,6 +81,7 @@ export const GET = async (request: NextRequest, { params }: { params: Promise<{ 
     headers: {
       'Cache-Control': 'private, no-store',
       'Content-Type': response.headers.get('content-type') || 'image/png',
+      'X-Robots-Tag': PRIVATE_GALLERY_ROBOTS_CONTENT,
     },
   })
 }
