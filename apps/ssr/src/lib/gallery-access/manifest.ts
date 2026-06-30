@@ -46,19 +46,30 @@ export type BrowserGalleryManifest = Omit<ServerGalleryManifest, 'data'> & {
 const getMediaUrl = (photoId: string, kind: 'live-video' | 'original') =>
   `/api/media/${encodeURIComponent(photoId)}?kind=${kind}`
 
-const getInternalThumbnailUrl = (url: string, photoId: string) => {
+const createThumbnailVersion = (photo: ServerPhotoManifestItem) => {
+  const versionSource
+    = typeof photo.digest === 'string' && photo.digest.length > 0
+      ? photo.digest
+      : typeof photo.lastModified === 'string' && photo.lastModified.length > 0
+        ? photo.lastModified
+        : null
+
+  return versionSource ? `?v=${encodeURIComponent(versionSource)}` : ''
+}
+
+const getInternalThumbnailUrl = (url: string, photoId: string, version: string) => {
   if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//')) {
-    return url
+    return `${url}${version}`
   }
 
   try {
     const parsed = new URL(url.startsWith('//') ? `https:${url}` : url)
     return parsed.pathname.startsWith('/thumbnails/')
-      ? `${parsed.pathname}${parsed.search}`
-      : `/thumbnails/${photoId}.jpg`
+      ? `${parsed.pathname}${version || parsed.search}`
+      : `/thumbnails/${photoId}.jpg${version}`
   }
   catch {
-    return `/thumbnails/${photoId}.jpg`
+    return `/thumbnails/${photoId}.jpg${version}`
   }
 }
 
@@ -78,11 +89,12 @@ const transformVideo = (photoId: string, video: ServerVideoSource | undefined): 
 
 const transformPhoto = (photo: ServerPhotoManifestItem): BrowserPhotoManifestItem => {
   const { ogImageUrl: _ogImageUrl, s3Key: _s3Key, video, ...browserPhoto } = photo
+  const thumbnailVersion = createThumbnailVersion(photo)
 
   return {
     ...browserPhoto,
     originalUrl: getMediaUrl(photo.id, 'original'),
-    thumbnailUrl: getInternalThumbnailUrl(photo.thumbnailUrl, photo.id),
+    thumbnailUrl: getInternalThumbnailUrl(photo.thumbnailUrl, photo.id, thumbnailVersion),
     video: transformVideo(photo.id, video),
   }
 }

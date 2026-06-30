@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
+import { DEFAULT_PRIVATE_CACHE_CONTROL, getGalleryCacheControl } from '~/lib/gallery-access/cache'
 import { getGalleryAccessConfig } from '~/lib/gallery-access/config'
 import { hasValidGallerySession } from '~/lib/gallery-access/request'
 
@@ -37,7 +38,7 @@ export const handleGalleryAccessProxy = (request: NextRequest, sessionSecret: st
 
   if (hasValidGallerySession(request, sessionSecret)) {
     const response = NextResponse.next()
-    response.headers.set('Cache-Control', 'private, no-store')
+    response.headers.set('Cache-Control', getGalleryCacheControl(request.nextUrl.pathname))
     return response
   }
 
@@ -49,7 +50,7 @@ export const handleGalleryAccessProxy = (request: NextRequest, sessionSecret: st
 
   return new NextResponse('Unauthorized', {
     headers: {
-      'Cache-Control': 'private, no-store',
+      'Cache-Control': DEFAULT_PRIVATE_CACHE_CONTROL,
     },
     status: 401,
   })

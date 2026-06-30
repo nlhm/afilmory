@@ -5,6 +5,7 @@ import test from 'node:test'
 import { NextRequest } from 'next/server'
 
 import { handleGalleryAccessProxy, isPublicGalleryPath } from '../../proxy'
+import { THUMBNAIL_CACHE_CONTROL } from './cache'
 import { createGallerySessionToken, GALLERY_ACCESS_COOKIE_NAME } from './session'
 
 const SESSION_SECRET = 'test-session-secret-with-at-least-thirty-two-characters'
@@ -63,4 +64,18 @@ test('proxy permits a request with a valid signed session', () => {
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('x-middleware-next'), '1')
   assert.equal(response.headers.get('cache-control'), 'private, no-store')
+})
+
+test('proxy allows private thumbnail caching after session validation', () => {
+  const token = createGallerySessionToken(SESSION_SECRET)
+  const response = handleGalleryAccessProxy(
+    createRequest('/thumbnails/private.jpg?v=2026-06-29T00%3A00%3A00.000Z', {
+      accept: 'image/avif,image/webp,*/*',
+      cookie: `${GALLERY_ACCESS_COOKIE_NAME}=${token}`,
+    }),
+    SESSION_SECRET,
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), THUMBNAIL_CACHE_CONTROL)
 })

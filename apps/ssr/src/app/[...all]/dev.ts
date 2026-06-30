@@ -5,6 +5,7 @@ import { DOMParser } from 'linkedom'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
+import { getGalleryCacheControl } from '~/lib/gallery-access/cache'
 import { injectGalleryDataToDocument } from '~/lib/gallery-access/gallery-html'
 
 const host = 'http://localhost:13333'
@@ -37,10 +38,10 @@ export const handler = async (req: NextRequest) => {
 
 async function proxyAssets(req: NextRequest) {
   const url = new URL(req.url)
-  const { pathname } = url
-  const response = await fetch(host + pathname)
+  const assetPath = `${url.pathname}${url.search}`
+  const response = await fetch(host + assetPath)
   const headers = new Headers(response.headers)
-  headers.set('Cache-Control', 'private, no-store')
+  headers.set('Cache-Control', getGalleryCacheControl(url.pathname))
   return new NextResponse(response.body, {
     headers,
     status: response.status,

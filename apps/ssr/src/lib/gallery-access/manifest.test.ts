@@ -5,10 +5,7 @@ import test from 'node:test'
 import { DOMParser } from 'linkedom'
 
 import type { ServerGalleryManifest, ServerPhotoManifestItem } from './manifest'
-import {
-  createBrowserGalleryManifest,
-  injectManifestToDocument,
-} from './manifest'
+import { createBrowserGalleryManifest, injectManifestToDocument } from './manifest'
 
 const PHOTO_ID = 'private/photo 01'
 
@@ -52,7 +49,7 @@ test('browser manifest uses only internal media routes and omits object keys', (
   const serialized = JSON.stringify(browserManifest)
 
   assert.equal(browserPhoto.originalUrl, '/api/media/private%2Fphoto%2001?kind=original')
-  assert.equal(browserPhoto.thumbnailUrl, '/thumbnails/private-photo.jpg')
+  assert.equal(browserPhoto.thumbnailUrl, '/thumbnails/private-photo.jpg?v=2026-06-29T00%3A00%3A00.000Z')
   assert.deepEqual(browserPhoto.video, {
     type: 'live-photo',
     videoUrl: '/api/media/private%2Fphoto%2001?kind=live-video',
@@ -63,6 +60,15 @@ test('browser manifest uses only internal media routes and omits object keys', (
 
   assert.equal(photo.s3Key, 'originals/private-photo.jpg')
   assert.equal(photo.video?.type === 'live-photo' && photo.video.s3Key, 'originals/private-photo.mov')
+})
+
+test('browser manifest prefers digest-based thumbnail versions when available', () => {
+  const browserManifest = createBrowserGalleryManifest({
+    ...manifest,
+    data: [{ ...photo, digest: 'thumb-digest-123' }],
+  })
+
+  assert.equal(browserManifest.data[0].thumbnailUrl, '/thumbnails/private-photo.jpg?v=thumb-digest-123')
 })
 
 test('manifest injection escapes script-breaking content', () => {
