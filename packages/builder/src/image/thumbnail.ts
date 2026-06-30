@@ -10,7 +10,7 @@ import { generateBlurhash } from './blurhash.js'
 
 // 常量定义
 const THUMBNAIL_DIR = path.join(workdir, 'public/thumbnails')
-const THUMBNAIL_QUALITY = 100
+const THUMBNAIL_QUALITY = 80
 const THUMBNAIL_WIDTH = 600
 
 // 获取缩略图路径信息
@@ -100,7 +100,7 @@ async function generateNewThumbnail(
       .resize(THUMBNAIL_WIDTH, null, {
         withoutEnlargement: true,
       })
-      .jpeg({ quality: THUMBNAIL_QUALITY })
+      .jpeg({ quality: THUMBNAIL_QUALITY, mozjpeg: true })
       .toBuffer()
 
     // 保存到文件

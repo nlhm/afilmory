@@ -20,17 +20,17 @@ interface CacheMetadata {
 
 const canUseCacheStorage = () => typeof globalThis.caches !== 'undefined' && typeof globalThis.location !== 'undefined'
 
-const isProtectedMediaUrl = (src: string) => {
+const resolveProtectedMediaCacheKey = (src: string) => {
   if (!canUseCacheStorage()) {
-    return false
+    return null
   }
 
   try {
     const url = new URL(src, globalThis.location.origin)
-    return url.origin === globalThis.location.origin && url.pathname.startsWith('/api/media/')
+    return url.origin === globalThis.location.origin && url.pathname.startsWith('/api/media/') ? url.toString() : null
   }
   catch {
-    return false
+    return null
   }
 }
 
@@ -114,13 +114,14 @@ async function pruneCache(cache: Cache, incomingKey: string, incomingBytes: numb
 }
 
 export async function getProtectedMediaBlob(src: string): Promise<Blob | null> {
-  if (!isProtectedMediaUrl(src)) {
+  const cacheKey = resolveProtectedMediaCacheKey(src)
+  if (!cacheKey) {
     return null
   }
 
   try {
     const cache = await caches.open(CACHE_NAME)
-    const response = await cache.match(src)
+    const response = await cache.match(cacheKey)
     if (!response) {
       return null
     }
@@ -128,7 +129,7 @@ export async function getProtectedMediaBlob(src: string): Promise<Blob | null> {
     const blob = await response.blob()
     await queueCacheMutation(async () => {
       const metadata = await readMetadata(cache)
-      metadata.entries[src] = {
+      metadata.entries[cacheKey] = {
         lastAccessedAt: Date.now(),
         size: readCachedSize(response) || blob.size,
       }
@@ -144,16 +145,17 @@ export async function getProtectedMediaBlob(src: string): Promise<Blob | null> {
 }
 
 export function cacheProtectedMediaBlob(src: string, blob: Blob): Promise<void> {
-  if (!isProtectedMediaUrl(src) || blob.size > MAX_CACHE_BYTES) {
+  const cacheKey = resolveProtectedMediaCacheKey(src)
+  if (!cacheKey || blob.size > MAX_CACHE_BYTES) {
     return Promise.resolve()
   }
 
   return queueCacheMutation(async () => {
     try {
       const cache = await caches.open(CACHE_NAME)
-      await pruneCache(cache, src, blob.size)
+      await pruneCache(cache, cacheKey, blob.size)
       await cache.put(
-        src,
+        cacheKey,
         new Response(blob, {
           headers: {
             'Content-Type': blob.type || 'application/octet-stream',
@@ -163,7 +165,7 @@ export function cacheProtectedMediaBlob(src: string, blob: Blob): Promise<void> 
         }),
       )
       const metadata = await readMetadata(cache)
-      metadata.entries[src] = {
+      metadata.entries[cacheKey] = {
         lastAccessedAt: Date.now(),
         size: blob.size,
       }

@@ -31,12 +31,14 @@ const mediaManifest: ServerGalleryManifest = {
   data: [
     {
       id: 'private/photo 01',
+      digest: 'original-digest-123',
       title: 'Private photo',
       description: 'Private photo',
       dateTaken: '2026-06-29T00:00:00.000Z',
       tags: ['private'],
       originalUrl: 'https://assets.woodbrook.cn/originals/private-photo.jpg',
       thumbnailUrl: 'https://assets.woodbrook.cn/thumbnails/private-photo.jpg',
+      thumbnailDigest: 'thumbnail-digest-456',
       thumbHash: null,
       width: 1200,
       height: 800,

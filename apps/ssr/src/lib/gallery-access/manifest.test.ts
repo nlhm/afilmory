@@ -11,12 +11,14 @@ const PHOTO_ID = 'private/photo 01'
 
 const photo = {
   id: PHOTO_ID,
+  digest: 'original-digest-123',
   title: '</script><script>globalThis.exposed = true</script>',
   description: 'Private photo',
   dateTaken: '2026-06-29T00:00:00.000Z',
   tags: ['private'],
   originalUrl: 'https://assets.woodbrook.cn/originals/private-photo.jpg',
   thumbnailUrl: 'https://assets.woodbrook.cn/thumbnails/private-photo.jpg',
+  thumbnailDigest: 'thumbnail-digest-456',
   ogImageUrl: 'https://assets.woodbrook.cn/og/private-photo.png',
   thumbHash: null,
   width: 1200,
@@ -48,8 +50,8 @@ test('browser manifest uses only internal media routes and omits object keys', (
   const browserPhoto = browserManifest.data[0]
   const serialized = JSON.stringify(browserManifest)
 
-  assert.equal(browserPhoto.originalUrl, '/api/media/private%2Fphoto%2001?kind=original&v=2026-06-29T00%3A00%3A00.000Z')
-  assert.equal(browserPhoto.thumbnailUrl, '/thumbnails/private-photo.jpg?v=2026-06-29T00%3A00%3A00.000Z')
+  assert.equal(browserPhoto.originalUrl, '/api/media/private%2Fphoto%2001?kind=original&v=original-digest-123')
+  assert.equal(browserPhoto.thumbnailUrl, '/thumbnails/private-photo.jpg?v=thumbnail-digest-456')
   assert.deepEqual(browserPhoto.video, {
     type: 'live-photo',
     videoUrl: '/api/media/private%2Fphoto%2001?kind=live-video',
@@ -62,14 +64,17 @@ test('browser manifest uses only internal media routes and omits object keys', (
   assert.equal(photo.video?.type === 'live-photo' && photo.video.s3Key, 'originals/private-photo.mov')
 })
 
-test('browser manifest prefers digest-based thumbnail versions when available', () => {
+test('browser manifest versions originals and thumbnails with independent content digests', () => {
   const browserManifest = createBrowserGalleryManifest({
     ...manifest,
-    data: [{ ...photo, digest: 'thumb-digest-123' }],
+    data: [{ ...photo, digest: 'next-original-digest', thumbnailDigest: 'next-thumbnail-digest' }],
   })
 
-  assert.equal(browserManifest.data[0].originalUrl, '/api/media/private%2Fphoto%2001?kind=original&v=thumb-digest-123')
-  assert.equal(browserManifest.data[0].thumbnailUrl, '/thumbnails/private-photo.jpg?v=thumb-digest-123')
+  assert.equal(
+    browserManifest.data[0].originalUrl,
+    '/api/media/private%2Fphoto%2001?kind=original&v=next-original-digest',
+  )
+  assert.equal(browserManifest.data[0].thumbnailUrl, '/thumbnails/private-photo.jpg?v=next-thumbnail-digest')
 })
 
 test('manifest injection escapes script-breaking content', () => {

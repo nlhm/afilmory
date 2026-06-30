@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -13,12 +14,16 @@ import { workdir } from '../path.js'
 import { getPhotoExecutionContext } from './execution-context.js'
 import { getGlobalLoggers } from './logger-adapter.js'
 import type { PhotoProcessorOptions } from './processor.js'
+import { canReuseThumbnail } from './thumbnail-cache.js'
 
 export interface ThumbnailResult {
   thumbnailUrl: string
   thumbnailBuffer: Buffer
+  thumbnailDigest: string
   thumbHash: Uint8Array | null
 }
+
+const createThumbnailDigest = (buffer: Buffer) => crypto.createHash('sha256').update(buffer).digest('hex')
 
 /**
  * 处理缩略图和 blurhash
@@ -29,18 +34,14 @@ export async function processThumbnailAndBlurhash(
   photoId: string,
   existingItem: PhotoManifestItem | undefined,
   options: PhotoProcessorOptions,
+  sourceChanged: boolean,
 ): Promise<ThumbnailResult> {
   const loggers = getGlobalLoggers()
   const { builder } = getPhotoExecutionContext()
   const { limitInputPixels } = builder.getConfig().system.processing
 
   // 检查是否可以复用现有数据
-  if (
-    !options.isForceMode &&
-    !options.isForceThumbnails &&
-    existingItem?.thumbHash &&
-    (await thumbnailExists(photoId))
-  ) {
+  if (canReuseThumbnail(existingItem, options, sourceChanged) && (await thumbnailExists(photoId))) {
     try {
       const thumbnailPath = path.join(workdir, 'public/thumbnails', `${photoId}.jpg`)
       const thumbnailBuffer = await fs.readFile(thumbnailPath)
@@ -52,6 +53,7 @@ export async function processThumbnailAndBlurhash(
       return {
         thumbnailUrl,
         thumbnailBuffer,
+        thumbnailDigest: createThumbnailDigest(thumbnailBuffer),
         thumbHash: decompressUint8Array(existingItem.thumbHash),
       }
     } catch (error) {
@@ -64,14 +66,19 @@ export async function processThumbnailAndBlurhash(
   const result = await generateThumbnailAndBlurhash(
     imageBuffer,
     photoId,
-    options.isForceMode || options.isForceThumbnails,
+    options.isForceMode || options.isForceThumbnails || sourceChanged,
     limitInputPixels,
   )
 
+  if (!result.thumbnailUrl || !result.thumbnailBuffer) {
+    throw new Error(`Failed to generate thumbnail: ${photoId}`)
+  }
+
   return {
-    thumbnailUrl: result.thumbnailUrl!,
-    thumbnailBuffer: result.thumbnailBuffer!,
-    thumbHash: result.thumbHash!,
+    thumbnailUrl: result.thumbnailUrl,
+    thumbnailBuffer: result.thumbnailBuffer,
+    thumbnailDigest: createThumbnailDigest(result.thumbnailBuffer),
+    thumbHash: result.thumbHash,
   }
 }
 

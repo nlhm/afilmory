@@ -20,9 +20,11 @@ type BrowserVideoSource = Omit<LivePhotoSource, 's3Key'> | MotionPhotoSource
 export interface ServerPhotoManifestItem {
   [key: string]: unknown
   id: string
+  digest: string
   ogImageUrl?: string | null
   originalUrl: string
   s3Key: string
+  thumbnailDigest: string
   thumbnailUrl: string
   video?: ServerVideoSource
 }
@@ -41,17 +43,6 @@ export type BrowserPhotoManifestItem = Omit<ServerPhotoManifestItem, 's3Key' | '
 
 export type BrowserGalleryManifest = Omit<ServerGalleryManifest, 'data'> & {
   data: BrowserPhotoManifestItem[]
-}
-
-const getAssetVersionValue = (photo: ServerPhotoManifestItem) => {
-  const versionSource
-    = typeof photo.digest === 'string' && photo.digest.length > 0
-      ? photo.digest
-      : typeof photo.lastModified === 'string' && photo.lastModified.length > 0
-        ? photo.lastModified
-        : null
-
-  return versionSource || ''
 }
 
 const getMediaUrl = (photoId: string, kind: 'live-video' | 'original', version = '') => {
@@ -97,12 +88,11 @@ const transformVideo = (photoId: string, video: ServerVideoSource | undefined): 
 
 const transformPhoto = (photo: ServerPhotoManifestItem): BrowserPhotoManifestItem => {
   const { ogImageUrl: _ogImageUrl, s3Key: _s3Key, video, ...browserPhoto } = photo
-  const assetVersion = getAssetVersionValue(photo)
-  const thumbnailVersion = getVersionedThumbnailSuffix(assetVersion)
+  const thumbnailVersion = getVersionedThumbnailSuffix(photo.thumbnailDigest)
 
   return {
     ...browserPhoto,
-    originalUrl: getMediaUrl(photo.id, 'original', assetVersion),
+    originalUrl: getMediaUrl(photo.id, 'original', photo.digest),
     thumbnailUrl: getInternalThumbnailUrl(photo.thumbnailUrl, photo.id, thumbnailVersion),
     video: transformVideo(photo.id, video),
   }

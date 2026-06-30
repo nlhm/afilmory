@@ -33,6 +33,11 @@ export async function shouldProcessPhoto(
     return { shouldProcess: true, reason: '新照片' }
   }
 
+  // 缓存摘要是原图与缩略图失效策略的一部分，缺失时必须补建。
+  if (!existingItem.digest || !existingItem.thumbnailDigest) {
+    return { shouldProcess: true, reason: '缓存摘要缺失' }
+  }
+
   // 检查文件是否更新
   const fileNeedsUpdate = existingItem.lastModified !== obj.LastModified?.toISOString()
 

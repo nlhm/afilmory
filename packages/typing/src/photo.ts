@@ -62,7 +62,8 @@ export interface PhotoManifestItem extends PhotoInfo {
   s3Key: string
   lastModified: string
   size: number
-  digest?: string
+  digest: string
+  thumbnailDigest: string
   exif: PickedExif | null
   toneAnalysis: ToneAnalysis | null // 影调分析结果
   location: LocationInfo | null // 地理位置信息（反向地理编码）

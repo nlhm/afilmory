@@ -105,3 +105,37 @@ test('protected media cache keys different original versions separately', async 
     Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
   }
 })
+
+test('protected media cache normalizes relative URLs before storing LRU metadata', async () => {
+  const cache = new MemoryCache()
+  const originalCaches = globalThis.caches
+  const originalLocation = globalThis.location
+
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: new URL(ORIGIN),
+  })
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    value: {
+      async open() {
+        return cache
+      },
+    },
+  })
+
+  try {
+    const relativeSrc = '/api/media/photo-1?kind=original&v=current'
+    const absoluteSrc = `${ORIGIN}${relativeSrc}`
+    await cacheProtectedMediaBlob(relativeSrc, new Blob(['photo'], { type: 'image/jpeg' }))
+    assert.equal(await (await getProtectedMediaBlob(relativeSrc))?.text(), 'photo')
+
+    const metadataResponse = await cache.match(`${ORIGIN}/__afilmory/protected-media-cache-metadata-v1`)
+    const metadata = (await metadataResponse?.json()) as { entries: Record<string, unknown> }
+    assert.deepEqual(Object.keys(metadata.entries), [absoluteSrc])
+  }
+  finally {
+    Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches })
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
+  }
+})

@@ -161,16 +161,23 @@ export async function executePhotoProcessingPipeline(
     // 1. 预处理图片
     const imageData = await preprocessImage(photoKey)
     if (!imageData) return null
+    const originalDigest = crypto.createHash('sha256').update(imageData.rawBuffer).digest('hex')
+    const sourceChanged = existingItem?.digest !== originalDigest
 
     // 2. 处理图片并创建 Sharp 实例
     const processedData = await processImageWithSharp(imageData.processedBuffer, photoKey)
     if (!processedData) return null
 
     const { sharpInstance, imageBuffer, metadata } = processedData
-    const contentDigest = crypto.createHash('sha256').update(imageBuffer).digest('hex')
 
     // 3. 处理缩略图和 blurhash
-    const thumbnailResult = await processThumbnailAndBlurhash(imageBuffer, photoId, existingItem, options)
+    const thumbnailResult = await processThumbnailAndBlurhash(
+      imageBuffer,
+      photoId,
+      existingItem,
+      options,
+      sourceChanged,
+    )
 
     context.pluginData[THUMBNAIL_PLUGIN_DATA_KEY] = {
       photoId,
@@ -228,7 +235,8 @@ export async function executePhotoProcessingPipeline(
       s3Key: photoKey,
       lastModified: obj.LastModified?.toISOString() || new Date().toISOString(),
       size: obj.Size || 0,
-      digest: contentDigest,
+      digest: originalDigest,
+      thumbnailDigest: thumbnailResult.thumbnailDigest,
       exif: exifData,
       toneAnalysis,
       location: existingItem?.location ?? null,
