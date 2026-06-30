@@ -48,7 +48,7 @@ test('browser manifest uses only internal media routes and omits object keys', (
   const browserPhoto = browserManifest.data[0]
   const serialized = JSON.stringify(browserManifest)
 
-  assert.equal(browserPhoto.originalUrl, '/api/media/private%2Fphoto%2001?kind=original')
+  assert.equal(browserPhoto.originalUrl, '/api/media/private%2Fphoto%2001?kind=original&v=2026-06-29T00%3A00%3A00.000Z')
   assert.equal(browserPhoto.thumbnailUrl, '/thumbnails/private-photo.jpg?v=2026-06-29T00%3A00%3A00.000Z')
   assert.deepEqual(browserPhoto.video, {
     type: 'live-photo',
@@ -68,6 +68,7 @@ test('browser manifest prefers digest-based thumbnail versions when available', 
     data: [{ ...photo, digest: 'thumb-digest-123' }],
   })
 
+  assert.equal(browserManifest.data[0].originalUrl, '/api/media/private%2Fphoto%2001?kind=original&v=thumb-digest-123')
   assert.equal(browserManifest.data[0].thumbnailUrl, '/thumbnails/private-photo.jpg?v=thumb-digest-123')
 })
 

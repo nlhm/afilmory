@@ -43,10 +43,7 @@ export type BrowserGalleryManifest = Omit<ServerGalleryManifest, 'data'> & {
   data: BrowserPhotoManifestItem[]
 }
 
-const getMediaUrl = (photoId: string, kind: 'live-video' | 'original') =>
-  `/api/media/${encodeURIComponent(photoId)}?kind=${kind}`
-
-const createThumbnailVersion = (photo: ServerPhotoManifestItem) => {
+const getAssetVersionValue = (photo: ServerPhotoManifestItem) => {
   const versionSource
     = typeof photo.digest === 'string' && photo.digest.length > 0
       ? photo.digest
@@ -54,8 +51,19 @@ const createThumbnailVersion = (photo: ServerPhotoManifestItem) => {
         ? photo.lastModified
         : null
 
-  return versionSource ? `?v=${encodeURIComponent(versionSource)}` : ''
+  return versionSource || ''
 }
+
+const getMediaUrl = (photoId: string, kind: 'live-video' | 'original', version = '') => {
+  const query = new URLSearchParams({ kind })
+  if (version) {
+    query.set('v', version)
+  }
+
+  return `/api/media/${encodeURIComponent(photoId)}?${query.toString()}`
+}
+
+const getVersionedThumbnailSuffix = (version: string) => (version ? `?v=${encodeURIComponent(version)}` : '')
 
 const getInternalThumbnailUrl = (url: string, photoId: string, version: string) => {
   if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//')) {
@@ -89,11 +97,12 @@ const transformVideo = (photoId: string, video: ServerVideoSource | undefined): 
 
 const transformPhoto = (photo: ServerPhotoManifestItem): BrowserPhotoManifestItem => {
   const { ogImageUrl: _ogImageUrl, s3Key: _s3Key, video, ...browserPhoto } = photo
-  const thumbnailVersion = createThumbnailVersion(photo)
+  const assetVersion = getAssetVersionValue(photo)
+  const thumbnailVersion = getVersionedThumbnailSuffix(assetVersion)
 
   return {
     ...browserPhoto,
-    originalUrl: getMediaUrl(photo.id, 'original'),
+    originalUrl: getMediaUrl(photo.id, 'original', assetVersion),
     thumbnailUrl: getInternalThumbnailUrl(photo.thumbnailUrl, photo.id, thumbnailVersion),
     video: transformVideo(photo.id, video),
   }

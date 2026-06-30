@@ -71,3 +71,37 @@ test('protected media cache survives a later visit and gallery logout', async ()
     Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
   }
 })
+
+test('protected media cache keys different original versions separately', async () => {
+  const cache = new MemoryCache()
+  const originalCaches = globalThis.caches
+  const originalLocation = globalThis.location
+
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: new URL(ORIGIN),
+  })
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    value: {
+      async open() {
+        return cache
+      },
+    },
+  })
+
+  try {
+    const firstSrc = `${ORIGIN}/api/media/photo-1?kind=original&v=old`
+    const nextSrc = `${ORIGIN}/api/media/photo-1?kind=original&v=new`
+
+    await cacheProtectedMediaBlob(firstSrc, new Blob(['old-photo'], { type: 'image/jpeg' }))
+    await cacheProtectedMediaBlob(nextSrc, new Blob(['new-photo'], { type: 'image/jpeg' }))
+
+    assert.equal(await (await getProtectedMediaBlob(firstSrc))?.text(), 'old-photo')
+    assert.equal(await (await getProtectedMediaBlob(nextSrc))?.text(), 'new-photo')
+  }
+  finally {
+    Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches })
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
+  }
+})
