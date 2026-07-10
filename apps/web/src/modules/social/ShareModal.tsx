@@ -1,16 +1,12 @@
 import type { ModalComponent } from '@afilmory/ui'
 import { Modal } from '@afilmory/ui'
-import { clsxm } from '@afilmory/utils'
 import type { MouseEvent, ReactElement, ReactNode } from 'react'
-import { cloneElement, isValidElement, useCallback, useMemo, useState } from 'react'
+import { cloneElement, isValidElement, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { siteConfig } from '~/config'
+import { canShareImageFile, createImageShareFile, isIOSDevice, isShareCancelled } from '~/lib/share-image'
 import type { PhotoManifest } from '~/types/photo'
-
-import { CopyButton } from './CopyButton'
-import { ShareActionButton } from './ShareActionButton'
 
 interface ShareModalTriggerProps {
   photo: PhotoManifest
@@ -21,13 +17,6 @@ interface ShareModalTriggerProps {
 interface ShareSheetProps {
   photo: PhotoManifest
   blobSrc?: string
-}
-
-interface SocialShareOption {
-  id: string
-  label: string
-  icon: string
-  url: string
 }
 
 export const ShareModal = ({ photo, trigger, blobSrc }: ShareModalTriggerProps) => {
@@ -58,207 +47,113 @@ export const ShareModal = ({ photo, trigger, blobSrc }: ShareModalTriggerProps) 
 
 const ShareSheet: ModalComponent<ShareSheetProps> = ({ photo, blobSrc, dismiss }) => {
   const { t } = useTranslation()
+  const canUseNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+  const shouldShareOriginalOnIOS = canUseNativeShare && isIOSDevice()
   const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false)
-
-  const resolvedBaseUrl = useMemo(() => {
-    if (typeof window !== 'undefined' && window.location?.origin) {
-      return window.location.origin
-    }
-    return siteConfig.url?.replace(/\/$/, '') ?? ''
-  }, [])
-
-  const shareLink = useMemo(() => {
-    const pathname = `/photos/${photo.id}`
-    if (!resolvedBaseUrl) {
-      return pathname
-    }
-    return `${resolvedBaseUrl}${pathname}`
-  }, [photo.id, resolvedBaseUrl])
+  const [isPreparingShareFile, setIsPreparingShareFile] = useState(shouldShareOriginalOnIOS)
+  const [shareFile, setShareFile] = useState<File | null>(null)
 
   const shareTitle = photo.title || t('photo.share.default.title')
-  const shareText = t('photo.share.text', { title: shareTitle })
 
-  const canUseNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
-
-  const socialOptions = useMemo(() => getSocialOptions(t), [t])
-
-  const actionColumns = 4 + (canUseNativeShare ? 1 : 0)
-
-  const handleNativeShare = useCallback(async () => {
-    if (!canUseNativeShare) {
+  useEffect(() => {
+    if (!shouldShareOriginalOnIOS) {
       return
     }
 
-    try {
-      const files = await buildShareFiles(photo, blobSrc)
-      await navigator.share({
-        title: shareTitle,
-        text: shareText,
-        url: shareLink,
-        ...(files.length > 0 ? { files } : {}),
-      })
-      dismiss()
-    }
-    catch {
-      await navigator.clipboard.writeText(shareLink)
-      toast.success(t('photo.share.linkCopied'))
-      dismiss()
-    }
-  }, [blobSrc, canUseNativeShare, dismiss, photo, shareLink, shareText, shareTitle, t])
+    const controller = new AbortController()
+    setIsPreparingShareFile(true)
+    setShareFile(null)
 
-  const handleCopyLink = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(shareLink)
-      toast.success(t('photo.share.linkCopied'))
-    }
-    catch {
-      toast.error(t('photo.share.copy.failed'))
-      throw new Error('Failed to copy')
-    }
-  }, [shareLink, t])
+    void createImageShareFile(blobSrc || photo.originalUrl, {
+      fallbackName: photo.id,
+      format: photo.format,
+      sourceKey: photo.s3Key,
+      signal: controller.signal,
+    })
+      .then((file) => {
+        if (canShareImageFile(file)) {
+          setShareFile(file)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!isShareCancelled(error)) {
+          console.warn('Unable to prepare image for sharing:', error)
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsPreparingShareFile(false)
+        }
+      })
+
+    return () => controller.abort()
+  }, [blobSrc, photo.format, photo.id, photo.originalUrl, photo.s3Key, shouldShareOriginalOnIOS])
+
+  const canSaveToPhotos = shouldShareOriginalOnIOS && shareFile !== null
+  const isPreparingSaveToPhotos = shouldShareOriginalOnIOS && isPreparingShareFile
 
   const handleDownloadOriginal = useCallback(async () => {
     try {
       setIsDownloadingOriginal(true)
-      await downloadFile(photo.originalUrl, `${photo.id}.jpg`)
+
+      if (canSaveToPhotos && shareFile) {
+        await navigator.share({ files: [shareFile] })
+        dismiss()
+        return
+      }
+
+      const file = await createImageShareFile(photo.originalUrl, {
+        fallbackName: photo.id,
+        format: photo.format,
+        sourceKey: photo.s3Key,
+      })
+      downloadFile(file)
       toast.success(t('photo.share.download.original'))
     }
-    catch {
-      toast.error(t('photo.share.copy.failed'))
+    catch (error) {
+      if (!isShareCancelled(error)) {
+        toast.error(t('photo.share.download.failed'))
+      }
     }
     finally {
       setIsDownloadingOriginal(false)
     }
-  }, [photo.id, photo.originalUrl, t])
+  }, [canSaveToPhotos, dismiss, photo.format, photo.id, photo.originalUrl, photo.s3Key, shareFile, t])
 
-  const handleSocialShare = useCallback(
-    (urlTemplate: string) => {
-      const encodedUrl = encodeURIComponent(shareLink)
-      const encodedTitle = encodeURIComponent(shareTitle)
-      const encodedText = encodeURIComponent(shareText)
-      const finalUrl = urlTemplate
-        .replace('{url}', encodedUrl)
-        .replace('{title}', encodedTitle)
-        .replace('{text}', encodedText)
-      window.open(finalUrl, '_blank', 'width=600,height=600')
-      dismiss()
-    },
-    [dismiss, shareLink, shareText, shareTitle],
-  )
+  const actionLabel = canSaveToPhotos ? t('photo.share.saveToPhotos') : t('photo.share.download.original')
 
   return (
     <div className="w-full text-base">
-      <div className="mb-4">
-        <div className="min-w-0">
-          <p className="mb-0.5 text-xs font-medium text-white/50">{t('photo.share.title')}</p>
-          <div className="truncate text-lg font-semibold text-white">{shareTitle}</div>
-          {photo.location?.city && <p className="mt-0.5 text-xs text-white/40">{photo.location.city}</p>}
-        </div>
+      <div className="mb-4 min-w-0">
+        <div className="truncate text-lg font-semibold text-white">{shareTitle}</div>
+        {photo.location?.city && <p className="mt-0.5 text-xs text-white/40">{photo.location.city}</p>}
       </div>
 
-      <div className="mb-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-white/50">{t('photo.share.link')}</p>
-        </div>
-        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white">
-          <span className="flex-1 truncate text-xs">{shareLink}</span>
-
-          <CopyButton onCopy={handleCopyLink} />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-xs font-medium text-white/50">{t('photo.share.actions')}</p>
-        <div
-          className={clsxm(
-            'grid gap-2',
-            actionColumns === 5 && 'grid-cols-5',
-            actionColumns === 4 && 'grid-cols-4',
-          )}
-        >
-          {/* Native share button (if available) */}
-          {canUseNativeShare && (
-            <ShareActionButton
-              icon="i-mingcute-share-2-line"
-              label="System"
-              onClick={handleNativeShare}
-              title={t('photo.share.system')}
-            />
-          )}
-          {/* Social share buttons */}
-          {socialOptions.map(option => (
-            <ShareActionButton
-              key={option.id}
-              icon={option.icon}
-              label={option.label}
-              onClick={() => handleSocialShare(option.url)}
-            />
-          ))}
-          {/* Download buttons */}
-          <ShareActionButton
-            icon="i-mingcute-download-3-line"
-            label={isDownloadingOriginal ? '…' : 'Original'}
-            onClick={handleDownloadOriginal}
-            disabled={isDownloadingOriginal}
-            title={t('photo.share.download.original')}
-          />
-        </div>
-      </div>
+      <button
+        type="button"
+        className="glassmorphic-btn flex w-full items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent/5 px-4 py-3 text-sm font-medium text-white transition-all duration-200 hover:border-accent/30 hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-60"
+        onClick={handleDownloadOriginal}
+        disabled={isDownloadingOriginal || isPreparingSaveToPhotos}
+        title={actionLabel}
+      >
+        <i className={canSaveToPhotos ? 'i-mingcute-pic-line text-lg' : 'i-mingcute-download-3-line text-lg'} />
+        <span>{isDownloadingOriginal || isPreparingSaveToPhotos ? '…' : actionLabel}</span>
+      </button>
     </div>
   )
 }
 
-ShareSheet.contentClassName = 'max-w-3xl w-full z-1000000'
+ShareSheet.contentClassName = 'max-w-sm w-full z-1000000'
 
-async function downloadFile(url: string, filename: string) {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error('Unable to download file')
-  }
-  const blob = await response.blob()
-  const blobUrl = URL.createObjectURL(blob)
+function downloadFile(file: File) {
+  const blobUrl = URL.createObjectURL(file)
   const link = document.createElement('a')
   link.href = blobUrl
-  link.download = filename
+  link.download = file.name
   document.body.append(link)
   link.click()
   link.remove()
   URL.revokeObjectURL(blobUrl)
-}
-
-async function buildShareFiles(photo: PhotoManifest, blobSrc?: string) {
-  const imageUrl = blobSrc || photo.originalUrl
-  try {
-    const response = await fetch(imageUrl)
-    const blob = await response.blob()
-    return [new File([blob], `${photo.title || photo.id}.jpg`, { type: blob.type || 'image/jpeg' })]
-  }
-  catch {
-    return []
-  }
-}
-
-function getSocialOptions(t: ReturnType<typeof useTranslation>['t']): SocialShareOption[] {
-  return [
-    {
-      id: 'twitter',
-      label: 'Twitter',
-      icon: 'i-mingcute-twitter-fill',
-      url: 'https://twitter.com/intent/tweet?text={text}&url={url}',
-    },
-    {
-      id: 'telegram',
-      label: 'Telegram',
-      icon: 'i-mingcute-telegram-line',
-      url: 'https://t.me/share/url?url={url}&text={text}',
-    },
-    {
-      id: 'weibo',
-      label: t('photo.share.weibo'),
-      icon: 'i-mingcute-weibo-line',
-      url: 'https://service.weibo.com/share/share.php?url={url}&title={text}',
-    },
-  ]
 }
 
 ShareSheet.displayName = 'ShareSheet'
