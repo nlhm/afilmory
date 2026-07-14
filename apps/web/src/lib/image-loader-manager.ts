@@ -38,34 +38,81 @@ export interface VideoProcessResult {
 
 export interface ImageCacheResult {
   blobSrc: string
+  convertedUrl?: string
+  retainedSize: number
   originalSize: number
   format: string
 }
 
-// Regular image cache using LRU cache
-const regularImageCache: LRUCache<string, ImageCacheResult> = new LRUCache<string, ImageCacheResult>(
-  10, // Cache size for regular images
+interface SharedImageLoad {
+  callbacks: Set<LoadingCallbacks>
+  cancelled: boolean
+  downloadComplete: boolean
+  lastLoadingState: Partial<LoadingState>
+  promise: Promise<ImageCacheResult>
+  reject: (reason?: unknown) => void
+  settled: boolean
+  xhr: XMLHttpRequest
+}
+
+const MAX_CACHED_IMAGE_BYTES = 256 * 1024 * 1024
+let cachedImageBytes = 0
+
+const imageCache: LRUCache<string, ImageCacheResult> = new LRUCache<string, ImageCacheResult>(
+  10,
   (value, key, reason) => {
+    cachedImageBytes = Math.max(0, cachedImageBytes - value.retainedSize)
     try {
       URL.revokeObjectURL(value.blobSrc)
-      console.info(`Regular image cache: Revoked blob URL - ${reason}`)
-    } catch (error) {
-      console.warn(`Failed to revoke regular image blob URL (${reason}):`, error)
+    }
+    catch (error) {
+      console.warn(`Failed to revoke image blob URL (${reason}):`, error)
     }
   },
 )
 
-/**
- * 生成普通图片的缓存键
- */
-function generateRegularImageCacheKey(url: string): string {
-  // 使用原始 URL 作为唯一键
-  return url
+const inFlightImageLoads = new Map<string, SharedImageLoad>()
+
+const createAbortError = () => new DOMException('Image loading was aborted', 'AbortError')
+
+const updateSharedLoadingState = (request: SharedImageLoad, state: Partial<LoadingState>) => {
+  request.lastLoadingState = { ...request.lastLoadingState, ...state }
+  for (const callbacks of request.callbacks) {
+    callbacks.onLoadingStateUpdate?.(state)
+  }
+}
+
+const notifySharedProgress = (request: SharedImageLoad, progress: number) => {
+  for (const callbacks of request.callbacks) {
+    callbacks.onProgress?.(progress)
+  }
+}
+
+const notifySharedError = (request: SharedImageLoad) => {
+  for (const callbacks of request.callbacks) {
+    callbacks.onError?.()
+  }
+}
+
+const cacheImageResult = (src: string, result: ImageCacheResult) => {
+  if (imageCache.has(src)) {
+    imageCache.delete(src)
+  }
+
+  while (cachedImageBytes + result.retainedSize > MAX_CACHED_IMAGE_BYTES) {
+    const oldestKey = imageCache.entries().next().value?.[0]
+    if (!oldestKey) {
+      break
+    }
+    imageCache.delete(oldestKey)
+  }
+
+  imageCache.set(src, result)
+  cachedImageBytes += result.retainedSize
 }
 
 export class ImageLoaderManager {
-  private currentXHR: XMLHttpRequest | null = null
-  private delayTimer: NodeJS.Timeout | null = null
+  private activeImageLoad: { callbacks: LoadingCallbacks, request: SharedImageLoad, src: string } | null = null
 
   /**
    * 验证 Blob 是否为有效的图片格式
@@ -95,93 +142,143 @@ export class ImageLoaderManager {
         return false
       }
 
-      console.info(`Valid image detected: ${fileType.ext} (${fileType.mime})`)
       return true
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to detect file type:', error)
       return false
     }
   }
 
   async loadImage(src: string, callbacks: LoadingCallbacks = {}): Promise<ImageLoadResult> {
-    const { onProgress, onError, onLoadingStateUpdate } = callbacks
+    this.detachImageLoad()
 
-    // Show loading indicator
-    onLoadingStateUpdate?.({
-      isVisible: true,
+    const cachedResult = imageCache.get(src)
+    if (cachedResult) {
+      callbacks.onLoadingStateUpdate?.({ isVisible: false })
+      return cachedResult
+    }
+
+    let request = inFlightImageLoads.get(src)
+    if (!request) {
+      request = this.createSharedImageLoad(src)
+      inFlightImageLoads.set(src, request)
+      request.xhr.send()
+    }
+
+    request.callbacks.add(callbacks)
+    this.activeImageLoad = { callbacks, request, src }
+
+    if (Object.keys(request.lastLoadingState).length > 0) {
+      callbacks.onLoadingStateUpdate?.(request.lastLoadingState)
+      const progress = request.lastLoadingState.loadingProgress
+      if (progress !== undefined) {
+        callbacks.onProgress?.(progress)
+      }
+    }
+
+    return request.promise.finally(() => {
+      if (this.activeImageLoad?.request !== request) {
+        return
+      }
+
+      request.callbacks.delete(callbacks)
+      this.activeImageLoad = null
     })
+  }
 
-    return new Promise((resolve, reject) => {
-      this.delayTimer = setTimeout(async () => {
-        const xhr = new XMLHttpRequest()
-        xhr.open('GET', src)
-        xhr.responseType = 'blob'
+  private createSharedImageLoad(src: string): SharedImageLoad {
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', src)
+    xhr.responseType = 'blob'
 
-        xhr.onload = async () => {
-          if (xhr.status === 200) {
-            try {
-              // 验证响应是否为图片
-              const blob = xhr.response as Blob
-              if (!(await this.isValidImageBlob(blob))) {
-                onLoadingStateUpdate?.({
-                  isVisible: false,
-                })
-                onError?.()
-                reject(new Error('Response is not a valid image'))
-                return
-              }
+    let resolveRequest!: (result: ImageCacheResult) => void
+    let rejectRequest!: (reason?: unknown) => void
 
-              const result = await this.processImageBlob(
-                blob,
-                src, // 传递原始 URL
-                callbacks,
-              )
-              resolve(result)
-            } catch (error) {
-              onLoadingStateUpdate?.({
-                isVisible: false,
-              })
-              onError?.()
-              reject(error)
-            }
-          } else {
-            onLoadingStateUpdate?.({
-              isVisible: false,
-            })
-            onError?.()
-            reject(new Error(`HTTP ${xhr.status}`))
-          }
+    const request: SharedImageLoad = {
+      callbacks: new Set(),
+      cancelled: false,
+      downloadComplete: false,
+      lastLoadingState: { isVisible: true },
+      promise: new Promise<ImageCacheResult>((resolve, reject) => {
+        resolveRequest = resolve
+        rejectRequest = reject
+      }),
+      reject: rejectRequest,
+      settled: false,
+      xhr,
+    }
+
+    const rejectWithError = (error: unknown, notifyError = true) => {
+      if (request.settled) {
+        return
+      }
+
+      request.settled = true
+      updateSharedLoadingState(request, { isVisible: false })
+      if (notifyError) {
+        notifySharedError(request)
+      }
+      rejectRequest(error)
+    }
+
+    xhr.onload = async () => {
+      request.downloadComplete = true
+
+      if (xhr.status !== 200) {
+        rejectWithError(new Error(`HTTP ${xhr.status}`))
+        return
+      }
+
+      try {
+        const blob = xhr.response as Blob
+        if (!(await this.isValidImageBlob(blob))) {
+          rejectWithError(new Error('Response is not a valid image'))
+          return
         }
 
-        xhr.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const progress = (e.loaded / e.total) * 100
-
-            // Update loading progress
-            onLoadingStateUpdate?.({
-              loadingProgress: progress,
-              loadedBytes: e.loaded,
-              totalBytes: e.total,
-            })
-
-            onProgress?.(progress)
-          }
+        const result = await this.processImageBlob(blob, src, request)
+        if (request.cancelled) {
+          URL.revokeObjectURL(result.blobSrc)
+          rejectWithError(createAbortError(), false)
+          return
         }
 
-        xhr.onerror = () => {
-          // Hide loading indicator on error
-          onLoadingStateUpdate?.({
-            isVisible: false,
-          })
+        cacheImageResult(src, result)
+        updateSharedLoadingState(request, { isVisible: false })
+        request.settled = true
+        resolveRequest(result)
+      }
+      catch (error) {
+        rejectWithError(error, !request.cancelled)
+      }
+    }
 
-          onError?.()
-          reject(new Error('Network error'))
-        }
+    xhr.onprogress = (event) => {
+      if (!event.lengthComputable) {
+        return
+      }
 
-        xhr.send()
-        this.currentXHR = xhr
-      }, 300)
-    })
+      const progress = (event.loaded / event.total) * 100
+      updateSharedLoadingState(request, {
+        loadedBytes: event.loaded,
+        loadingProgress: progress,
+        totalBytes: event.total,
+      })
+      notifySharedProgress(request, progress)
+    }
+
+    xhr.onerror = () => rejectWithError(new Error('Network error'))
+    xhr.onabort = () => rejectWithError(createAbortError(), false)
+
+    const removeInFlightRequest = () => {
+      if (inFlightImageLoads.get(src) === request) {
+        inFlightImageLoads.delete(src)
+      }
+    }
+    void request.promise.then(removeInFlightRequest, removeInFlightRequest)
+
+    return request
   }
 
   /**
@@ -202,7 +299,6 @@ export class ImageLoaderManager {
           // Pattern matching on VideoSource
           if (videoSource.type === 'motion-photo') {
             // Motion Photo: 从图片中提取嵌入视频
-            console.info('Processing Motion Photo embedded video...')
             onLoadingStateUpdate?.({
               isVisible: true,
               conversionMessage: i18n.t('video.motion-photo.extracting'),
@@ -217,8 +313,6 @@ export class ImageLoaderManager {
             if (extractedVideoUrl) {
               videoElement.src = extractedVideoUrl
               videoElement.load()
-
-              console.info('Motion Photo video extracted successfully')
 
               onLoadingStateUpdate?.({
                 isVisible: false,
@@ -237,23 +331,28 @@ export class ImageLoaderManager {
               })
 
               resolve(result)
-            } else {
+            }
+            else {
               throw new Error('Failed to extract Motion Photo video')
             }
-          } else if (videoSource.type === 'live-photo') {
+          }
+          else if (videoSource.type === 'live-photo') {
             // Live Photo: 处理独立视频文件
             if (needsVideoConversion(videoSource.videoUrl)) {
               const result = await this.convertVideo(videoSource.videoUrl, videoElement, callbacks)
               resolve(result)
-            } else {
+            }
+            else {
               const result = await this.loadDirectVideo(videoSource.videoUrl, videoElement)
               resolve(result)
             }
-          } else {
+          }
+          else {
             // type === 'none'
             throw new Error('No video source provided')
           }
-        } catch (error) {
+        }
+        catch (error) {
           console.error('Failed to process video:', error)
           onLoadingStateUpdate?.({
             isVisible: false,
@@ -267,12 +366,10 @@ export class ImageLoaderManager {
     })
   }
 
-  private async processImageBlob(
-    blob: Blob,
-    originalUrl: string,
-    callbacks: LoadingCallbacks,
-  ): Promise<ImageLoadResult> {
-    const { onError: _onError, onLoadingStateUpdate } = callbacks
+  private async processImageBlob(blob: Blob, originalUrl: string, request: SharedImageLoad): Promise<ImageCacheResult> {
+    const callbacks: LoadingCallbacks = {
+      onLoadingStateUpdate: state => updateSharedLoadingState(request, state),
+    }
 
     try {
       // 使用策略模式检测并转换图像
@@ -280,89 +377,41 @@ export class ImageLoaderManager {
 
       if (conversionResult) {
         // 需要转换的格式
-        console.info(
-          `Image converted: ${(blob.size / 1024).toFixed(1)}KB → ${(conversionResult.convertedSize / 1024).toFixed(1)}KB`,
-        )
-
-        // Hide loading indicator
-        onLoadingStateUpdate?.({
-          isVisible: false,
-        })
-
         return {
           blobSrc: conversionResult.url,
           convertedUrl: conversionResult.url,
+          format: conversionResult.format,
+          originalSize: conversionResult.originalSize,
+          retainedSize: conversionResult.convertedSize,
         }
-      } else {
-        // 不需要转换的普通图片
-        return this.processRegularImage(blob, originalUrl, callbacks)
       }
-    } catch (conversionError) {
+      else {
+        // 不需要转换的普通图片
+        return this.processRegularImage(blob)
+      }
+    }
+    catch (conversionError) {
       console.error('Image conversion failed:', conversionError)
 
       // 转换失败时，尝试按普通图片处理
       try {
-        console.info('Falling back to regular image processing')
-        return this.processRegularImage(blob, originalUrl, callbacks)
-      } catch (fallbackError) {
+        return this.processRegularImage(blob)
+      }
+      catch (fallbackError) {
         console.error('Fallback to regular image processing also failed:', fallbackError)
-
-        // Hide loading indicator on error
-        onLoadingStateUpdate?.({
-          isVisible: false,
-        })
-
-        _onError?.()
         throw conversionError
       }
     }
   }
 
-  private processRegularImage(
-    blob: Blob,
-    originalUrl: string, // 添加原始 URL 参数
-    callbacks: LoadingCallbacks,
-  ): ImageLoadResult {
-    const { onLoadingStateUpdate } = callbacks
-
-    // 生成缓存键
-    const cacheKey = generateRegularImageCacheKey(originalUrl) // 使用原始 URL
-
-    // 检查缓存
-    const cachedResult = regularImageCache.get(cacheKey)
-    if (cachedResult) {
-      console.info('Using cached regular image result', cachedResult)
-
-      // Hide loading indicator
-      onLoadingStateUpdate?.({
-        isVisible: false,
-      })
-
-      return {
-        blobSrc: cachedResult.blobSrc,
-      }
-    }
-
-    // 普通图片格式
+  private processRegularImage(blob: Blob): ImageCacheResult {
     const url = URL.createObjectURL(blob)
-
-    const result: ImageCacheResult = {
-      blobSrc: url,
-      originalSize: blob.size,
-      format: blob.type,
-    }
-
-    // 缓存结果
-    regularImageCache.set(cacheKey, result)
-    console.info(`Regular image processed and cached: ${(blob.size / 1024).toFixed(1)}KB, URL: ${originalUrl}`)
-
-    // Hide loading indicator
-    onLoadingStateUpdate?.({
-      isVisible: false,
-    })
 
     return {
       blobSrc: url,
+      format: blob.type,
+      originalSize: blob.size,
+      retainedSize: blob.size,
     }
   }
 
@@ -380,8 +429,6 @@ export class ImageLoaderManager {
       loadingProgress: 0,
     })
 
-    console.info('Converting MOV video to MP4...')
-
     const i18n = jotaiStore.get(i18nAtom)
 
     const result = await convertMovToMp4(livePhotoVideoUrl, (progress) => {
@@ -393,8 +440,7 @@ export class ImageLoaderManager {
         '编码器', // 备用关键词
       ]
       const isCodecInfo = codecKeywords.some((keyword: string) =>
-        progress.message.toLowerCase().includes(keyword.toLowerCase()),
-      )
+        progress.message.toLowerCase().includes(keyword.toLowerCase()))
 
       onLoadingStateUpdate?.({
         isVisible: true,
@@ -411,10 +457,6 @@ export class ImageLoaderManager {
       videoElement.src = result.videoUrl
       videoElement.load()
 
-      console.info(
-        `Video conversion completed. Size: ${result.convertedSize ? Math.round(result.convertedSize / 1024) : 'unknown'}KB`,
-      )
-
       onLoadingStateUpdate?.({
         isVisible: false,
       })
@@ -429,7 +471,8 @@ export class ImageLoaderManager {
 
         videoElement.addEventListener('canplaythrough', handleVideoCanPlay)
       })
-    } else {
+    }
+    else {
       console.error('Video conversion failed:', result.error)
       onLoadingStateUpdate?.({
         isVisible: false,
@@ -459,45 +502,55 @@ export class ImageLoaderManager {
   }
 
   cleanup() {
-    // 清理定时器
-    if (this.delayTimer) {
-      clearTimeout(this.delayTimer)
-      this.delayTimer = null
+    this.detachImageLoad()
+  }
+
+  private detachImageLoad() {
+    const activeLoad = this.activeImageLoad
+    if (!activeLoad) {
+      return
     }
 
-    // 取消正在进行的请求
-    if (this.currentXHR) {
-      this.currentXHR.abort()
-      this.currentXHR = null
+    const { callbacks, request } = activeLoad
+    request.callbacks.delete(callbacks)
+    this.activeImageLoad = null
+
+    if (!request.settled && !request.downloadComplete && request.callbacks.size === 0) {
+      request.cancelled = true
+      request.settled = true
+      if (inFlightImageLoads.get(activeLoad.src) === request) {
+        inFlightImageLoads.delete(activeLoad.src)
+      }
+      request.reject(createAbortError())
+      request.xhr.abort()
     }
   }
 }
 
-// Regular image cache management functions
-export function getRegularImageCacheSize(): number {
-  return regularImageCache.size()
+// Image cache management functions
+export function getImageCacheSize(): number {
+  return imageCache.size()
 }
 
-export function clearRegularImageCache(): void {
-  regularImageCache.clear()
+export function clearImageCache(): void {
+  imageCache.clear()
 }
 
-export function removeRegularImageCache(cacheKey: string): boolean {
-  return regularImageCache.delete(cacheKey)
+export function removeImageCache(cacheKey: string): boolean {
+  return imageCache.delete(cacheKey)
 }
 
-export function getRegularImageCacheStats(): {
+export function getImageCacheStats(): {
   size: number
   maxSize: number
   keys: string[]
 } {
-  return regularImageCache.getStats()
+  return imageCache.getStats()
 }
 
 /**
- * 根据原始 URL 移除特定的普通图片缓存项
+ * 根据原始 URL 移除特定的图片缓存项
  */
-export function removeRegularImageCacheByUrl(originalUrl: string): boolean {
-  const cacheKey = generateRegularImageCacheKey(originalUrl)
-  return regularImageCache.delete(cacheKey)
+export function removeImageCacheByUrl(originalUrl: string): boolean {
+  return imageCache.delete(originalUrl)
 }

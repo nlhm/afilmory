@@ -77,7 +77,9 @@ export const useImageLoader = (
   const imageLoaderManagerRef = useRef<ImageLoaderManager | null>(null)
 
   useEffect(() => {
-    if (highResLoaded || error || !isCurrentImage) return
+    if (highResLoaded || error || !isCurrentImage) {
+      return
+    }
 
     // Create new image loader manager
     const imageLoaderManager = new ImageLoaderManager()
@@ -107,7 +109,12 @@ export const useImageLoader = (
         setBlobSrc?.(result.blobSrc)
         onBlobSrcChange?.(result.blobSrc)
         setHighResLoaded?.(true)
-      } catch (loadError) {
+      }
+      catch (loadError) {
+        if (loadError instanceof DOMException && loadError.name === 'AbortError') {
+          return
+        }
+
         console.error('Failed to load image:', loadError)
         setError?.(true)
 
@@ -202,7 +209,9 @@ export const useLivePhotoControls = (
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const handleLongPressStart = useCallback(() => {
-    if (!isMobileDevice) return
+    if (!isMobileDevice) {
+      return
+    }
     const playVideo = () => livePhotoRef.current?.play()
     if (!isLivePhoto || !livePhotoRef.current?.getIsVideoLoaded() || isLivePhotoPlaying) {
       return
@@ -214,7 +223,9 @@ export const useLivePhotoControls = (
   }, [isLivePhoto, isLivePhotoPlaying, livePhotoRef])
 
   const handleLongPressEnd = useCallback(() => {
-    if (!isMobileDevice) return
+    if (!isMobileDevice) {
+      return
+    }
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current)
     }
@@ -235,7 +246,8 @@ export const useWebGLLoadingState = (loadingIndicatorRef: React.RefObject<Loadin
 
       if (state === LoadingState.CREATE_TEXTURE) {
         message = t('photo.webgl.creatingTexture')
-      } else if (state === LoadingState.IMAGE_LOADING) {
+      }
+      else if (state === LoadingState.IMAGE_LOADING) {
         message = t('photo.webgl.loadingImage')
       }
 
@@ -287,10 +299,12 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
                   }),
                 ])
                 resolve()
-              } else {
+              }
+              else {
                 reject(new Error('Failed to convert image to PNG'))
               }
-            } catch (error) {
+            }
+            catch (error) {
               reject(error)
             }
           }, 'image/png')
@@ -298,12 +312,13 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
 
         toast.dismiss(loadingToast)
         toast.success(t('photo.copy.success'))
-      } catch (error) {
+      }
+      catch (error) {
         console.error('Failed to copy image:', error)
 
         // Fallback: try to copy the original blob
         try {
-          const blob = await fetch(blobSrc).then((res) => res.blob())
+          const blob = await fetch(blobSrc).then(res => res.blob())
           await navigator.clipboard.write([
             new ClipboardItem({
               [blob.type]: blob,
@@ -311,7 +326,8 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
           ])
           toast.dismiss(loadingToast)
           toast.success(t('photo.copy.success'))
-        } catch (fallbackError) {
+        }
+        catch (fallbackError) {
           console.error('Fallback copy also failed:', fallbackError)
           toast.dismiss(loadingToast)
           toast.error(t('photo.copy.error'))
