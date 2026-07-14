@@ -1,4 +1,5 @@
 import { clsxm } from '@afilmory/utils'
+import type { LoadingState } from '@afilmory/webgl-viewer'
 import { WebGLImageViewer } from '@afilmory/webgl-viewer'
 import { AnimatePresence, m } from 'motion/react'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
@@ -12,6 +13,7 @@ import { isMobileDevice } from '~/lib/device-viewport'
 import { canUseWebGL } from '~/lib/feature'
 import { HDRBadge } from '~/modules/media/HDRBadge'
 import { LivePhotoBadge } from '~/modules/media/LivePhotoBadge'
+import type { LivePhotoVideoHandle } from '~/modules/media/LivePhotoVideo'
 import { LivePhotoVideo } from '~/modules/media/LivePhotoVideo'
 
 import { DOMImageViewer } from './DOMImageViewer'
@@ -39,6 +41,7 @@ export const ProgressiveImage = ({
   onProgress,
   onZoomChange,
   onBlobSrcChange,
+  onHighResReady,
   onVisualReadyChange,
   disableThumbnailTransition = false,
   enableZoom = true,
@@ -76,7 +79,9 @@ export const ProgressiveImage = ({
   const thumbnailRef = useRef<HTMLImageElement>(null)
   const webglImageViewerRef = useRef<WebGLImageViewerRef | null>(null)
   const domImageViewerRef = useRef<ReactZoomPanPinchRef>(null)
-  const livePhotoRef = useRef<any>(null)
+  const livePhotoRef = useRef<LivePhotoVideoHandle>(null)
+  const webglLoadingSourceRef = useRef<string | null>(null)
+  const webglLoadStartedRef = useRef(false)
 
   const resolvedSrc = useMemo(() => {
     if (src.startsWith('/')) {
@@ -109,7 +114,31 @@ export const ProgressiveImage = ({
 
   const { handleLongPressStart, handleLongPressEnd } = useLivePhotoControls(hasVideo, isLivePhotoPlaying, livePhotoRef)
 
-  const handleWebGLLoadingStateChange = useWebGLLoadingState(loadingIndicatorRef)
+  const updateWebGLLoadingState = useWebGLLoadingState(loadingIndicatorRef)
+
+  const handleHighResReady = useCallback(() => {
+    setState.setIsHighResImageRendered(true)
+    onHighResReady?.()
+  }, [onHighResReady, setState])
+
+  const handleWebGLLoadingStateChange = useCallback(
+    (isLoading: boolean, loadingState?: LoadingState, quality?: 'high' | 'medium' | 'low' | 'unknown') => {
+      updateWebGLLoadingState(isLoading, loadingState, quality)
+
+      if (webglLoadingSourceRef.current !== blobSrc) {
+        webglLoadingSourceRef.current = blobSrc
+        webglLoadStartedRef.current = false
+      }
+
+      if (isLoading) {
+        webglLoadStartedRef.current = true
+      }
+      else if (webglLoadStartedRef.current) {
+        handleHighResReady()
+      }
+    },
+    [blobSrc, handleHighResReady, updateWebGLLoadingState],
+  )
 
   const handleThumbnailLoad = useCallback(() => {
     if (thumbnailSrc) {
@@ -125,14 +154,14 @@ export const ProgressiveImage = ({
     }
 
     const thumbnailElement = thumbnailRef.current
-    const isAlreadyLoaded =
-      loadedThumbnailSrcSet.has(thumbnailSrc) ||
-      isThumbnailElementVisuallyReady({
-        currentSrc: thumbnailElement?.currentSrc,
-        naturalWidth: thumbnailElement?.naturalWidth,
-        src: thumbnailElement?.src,
-        thumbnailSrc,
-      })
+    const isAlreadyLoaded
+      = loadedThumbnailSrcSet.has(thumbnailSrc)
+        || isThumbnailElementVisuallyReady({
+          currentSrc: thumbnailElement?.currentSrc,
+          naturalWidth: thumbnailElement?.naturalWidth,
+          src: thumbnailElement?.src,
+          thumbnailSrc,
+        })
 
     if (isAlreadyLoaded) {
       loadedThumbnailSrcSet.add(thumbnailSrc)
@@ -230,7 +259,7 @@ export const ProgressiveImage = ({
               src={blobSrc}
               alt={alt}
               highResLoaded={highResLoaded}
-              onLoad={() => setState.setIsHighResImageRendered(true)}
+              onLoad={handleHighResReady}
             >
               {/* LivePhoto/Motion Photo 视频组件作为 children，跟随图片的变换 */}
               {hasVideo && videoSource && imageLoaderManagerRef.current && (
@@ -304,7 +333,8 @@ export const ProgressiveImage = ({
             exit={{ opacity: 0, y: 10 }}
             className="pointer-events-none absolute bottom-4 left-4 z-20 flex items-center gap-0.5 rounded bg-black/50 px-3 py-1 text-lg text-white tabular-nums"
           >
-            <SlidingNumber number={currentScale} decimalPlaces={1} />x
+            <SlidingNumber number={currentScale} decimalPlaces={1} />
+            x
           </m.div>
         )}
       </AnimatePresence>

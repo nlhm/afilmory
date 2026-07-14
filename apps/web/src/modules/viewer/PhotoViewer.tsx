@@ -37,6 +37,7 @@ import { resolvePhotoViewerEntryState, shouldHideCurrentViewerImage } from './en
 import { GalleryThumbnail } from './GalleryThumbnail'
 import { MobilePhotoInspectorSheet } from './MobilePhotoInspectorSheet'
 import { ProgressiveImage } from './ProgressiveImage'
+import { usePhotoPrefetch } from './usePhotoPrefetch'
 
 interface PhotoViewerProps {
   photos: PhotoManifest[]
@@ -75,10 +76,18 @@ export const PhotoViewer = ({
   const [isCurrentImageVisualReady, setIsCurrentImageVisualReady] = useState(false)
   const [isDesktopInspectorVisible, setIsDesktopInspectorVisible] = useState(!isMobile)
   const [currentBlobSrc, setCurrentBlobSrc] = useState<string | null>(null)
+  const [highResReadyPhotoId, setHighResReadyPhotoId] = useState<string | null>(null)
   const [dragDismissExitFrame, setDragDismissExitFrame] = useState<AnimationFrameRect | null>(null)
   const [entrySuppressedPhotoId] = useState(() => (disableEntryTransition ? (photos[currentIndex]?.id ?? null) : null))
 
   const currentPhoto = photos[currentIndex]
+
+  usePhotoPrefetch({
+    currentImageReady: highResReadyPhotoId === currentPhoto?.id,
+    currentIndex,
+    isOpen,
+    photos,
+  })
   const {
     containerRef,
     entryTransition,
@@ -202,6 +211,7 @@ export const PhotoViewer = ({
       setIsImageZoomed(false)
       setIsDesktopInspectorVisible(!isMobile)
       setCurrentBlobSrc(null)
+      setHighResReadyPhotoId(null)
       if (!dragDismissExitFrame) {
         resetMobileInteractions()
       }
@@ -546,6 +556,7 @@ export const PhotoViewer = ({
                                     shouldRenderHighRes={isCurrentImage && isViewerContentVisible && isOpen}
                                     onZoomChange={isCurrentImage ? handleZoomChange : undefined}
                                     onBlobSrcChange={isCurrentImage ? handleBlobSrcChange : undefined}
+                                    onHighResReady={isCurrentImage ? () => setHighResReadyPhotoId(photo.id) : undefined}
                                     onVisualReadyChange={isCurrentImage ? setIsCurrentImageVisualReady : undefined}
                                     disableThumbnailTransition={isCurrentImage && entryTransition?.variant === 'entry'}
                                     videoSource={
