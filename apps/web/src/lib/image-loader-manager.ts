@@ -43,6 +43,8 @@ export interface ImageCacheResult {
   format: string
 }
 
+const pendingImageLoads = new Map<string, Promise<ImageLoadResult>>()
+
 // Regular image cache using LRU cache
 const regularImageCache: LRUCache<string, ImageCacheResult> = new LRUCache<string, ImageCacheResult>(
   10, // Cache size for regular images
@@ -67,6 +69,8 @@ function generateRegularImageCacheKey(url: string): string {
 export class ImageLoaderManager {
   private currentXHR: XMLHttpRequest | null = null
   private delayTimer: NodeJS.Timeout | null = null
+  private currentLoadReject: ((reason?: unknown) => void) | null = null
+  private isCancelled = false
 
   /**
    * 验证 Blob 是否为有效的图片格式
@@ -105,31 +109,65 @@ export class ImageLoaderManager {
   }
 
   async loadImage(src: string, callbacks: LoadingCallbacks = {}): Promise<ImageLoadResult> {
-    const { onProgress, onError, onLoadingStateUpdate } = callbacks
+    this.isCancelled = false
 
     const memoryCachedResult = regularImageCache.get(generateRegularImageCacheKey(src))
     if (memoryCachedResult) {
-      onLoadingStateUpdate?.({ isVisible: false })
+      callbacks.onLoadingStateUpdate?.({ isVisible: false })
       return { blobSrc: memoryCachedResult.blobSrc }
     }
 
-    // Show loading indicator
-    onLoadingStateUpdate?.({
-      isVisible: true,
-    })
+    const pendingLoad = pendingImageLoads.get(src)
+    if (pendingLoad) {
+      callbacks.onLoadingStateUpdate?.({ isVisible: true, isQueueWaiting: true })
+      try {
+        const result = await pendingLoad
+        callbacks.onLoadingStateUpdate?.({ isVisible: false, isQueueWaiting: false })
+        return result
+      }
+      catch (error) {
+        callbacks.onLoadingStateUpdate?.({ isVisible: false, isQueueWaiting: false })
+        callbacks.onError?.()
+        throw error
+      }
+    }
+
+    const loadPromise = this.loadImageUncached(src, callbacks)
+    pendingImageLoads.set(src, loadPromise)
+
+    try {
+      return await loadPromise
+    }
+    finally {
+      if (pendingImageLoads.get(src) === loadPromise) {
+        pendingImageLoads.delete(src)
+      }
+    }
+  }
+
+  private async loadImageUncached(src: string, callbacks: LoadingCallbacks): Promise<ImageLoadResult> {
+    const { onProgress, onError, onLoadingStateUpdate } = callbacks
+
+    onLoadingStateUpdate?.({ isVisible: true })
 
     const persistedBlob = await getProtectedMediaBlob(src)
+    if (this.isCancelled) {
+      throw new DOMException('Image load aborted', 'AbortError')
+    }
     if (persistedBlob) {
       return await this.processImageBlob(persistedBlob, src, callbacks)
     }
 
     return new Promise((resolve, reject) => {
+      this.currentLoadReject = reject
       this.delayTimer = setTimeout(async () => {
+        this.delayTimer = null
         const xhr = new XMLHttpRequest()
         xhr.open('GET', src)
         xhr.responseType = 'blob'
 
         xhr.onload = async () => {
+          this.currentXHR = null
           if (xhr.status === 200) {
             try {
               // 验证响应是否为图片
@@ -150,8 +188,10 @@ export class ImageLoaderManager {
                 src, // 传递原始 URL
                 callbacks,
               )
+              this.currentLoadReject = null
               resolve(result)
             } catch (error) {
+              this.currentLoadReject = null
               onLoadingStateUpdate?.({
                 isVisible: false,
               })
@@ -159,6 +199,7 @@ export class ImageLoaderManager {
               reject(error)
             }
           } else {
+            this.currentLoadReject = null
             onLoadingStateUpdate?.({
               isVisible: false,
             })
@@ -183,6 +224,8 @@ export class ImageLoaderManager {
         }
 
         xhr.onerror = () => {
+          this.currentXHR = null
+          this.currentLoadReject = null
           // Hide loading indicator on error
           onLoadingStateUpdate?.({
             isVisible: false,
@@ -190,6 +233,12 @@ export class ImageLoaderManager {
 
           onError?.()
           reject(new Error('Network error'))
+        }
+
+        xhr.onabort = () => {
+          this.currentXHR = null
+          this.currentLoadReject = null
+          reject(new DOMException('Image load aborted', 'AbortError'))
         }
 
         xhr.send()
@@ -473,10 +522,14 @@ export class ImageLoaderManager {
   }
 
   cleanup() {
+    this.isCancelled = true
+
     // 清理定时器
     if (this.delayTimer) {
       clearTimeout(this.delayTimer)
       this.delayTimer = null
+      this.currentLoadReject?.(new DOMException('Image load aborted', 'AbortError'))
+      this.currentLoadReject = null
     }
 
     // 取消正在进行的请求
@@ -484,6 +537,19 @@ export class ImageLoaderManager {
       this.currentXHR.abort()
       this.currentXHR = null
     }
+  }
+}
+
+export interface ImagePreloadTask {
+  promise: Promise<void>
+  cancel: () => void
+}
+
+export function preloadImage(src: string): ImagePreloadTask {
+  const imageLoaderManager = new ImageLoaderManager()
+  return {
+    promise: imageLoaderManager.loadImage(src).then(() => undefined),
+    cancel: () => imageLoaderManager.cleanup(),
   }
 }
 

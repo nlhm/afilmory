@@ -79,6 +79,8 @@ export const useImageLoader = (
   useEffect(() => {
     if (highResLoaded || error || !isCurrentImage) return
 
+    let isDisposed = false
+
     // Create new image loader manager
     const imageLoaderManager = new ImageLoaderManager()
     imageLoaderManagerRef.current = imageLoaderManager
@@ -104,10 +106,16 @@ export const useImageLoader = (
           },
         })
 
-        setBlobSrc?.(result.blobSrc)
-        onBlobSrcChange?.(result.blobSrc)
-        setHighResLoaded?.(true)
-      } catch (loadError) {
+        if (!isDisposed) {
+          setBlobSrc?.(result.blobSrc)
+          onBlobSrcChange?.(result.blobSrc)
+          setHighResLoaded?.(true)
+        }
+      }
+      catch (loadError) {
+        if (isDisposed) {
+          return
+        }
         console.error('Failed to load image:', loadError)
         setError?.(true)
 
@@ -124,6 +132,7 @@ export const useImageLoader = (
     loadImage()
 
     return () => {
+      isDisposed = true
       imageLoaderManager.cleanup()
     }
   }, [

@@ -37,6 +37,7 @@ import { resolvePhotoViewerEntryState, shouldHideCurrentViewerImage } from './en
 import { GalleryThumbnail } from './GalleryThumbnail'
 import { MobilePhotoInspectorSheet } from './MobilePhotoInspectorSheet'
 import { ProgressiveImage } from './ProgressiveImage'
+import { usePhotoPreloader } from './usePhotoPreloader'
 
 interface PhotoViewerProps {
   photos: PhotoManifest[]
@@ -75,6 +76,7 @@ export const PhotoViewer = ({
   const [isCurrentImageVisualReady, setIsCurrentImageVisualReady] = useState(false)
   const [isDesktopInspectorVisible, setIsDesktopInspectorVisible] = useState(!isMobile)
   const [currentBlobSrc, setCurrentBlobSrc] = useState<string | null>(null)
+  const [readyPhotoId, setReadyPhotoId] = useState<string | null>(null)
   const [dragDismissExitFrame, setDragDismissExitFrame] = useState<AnimationFrameRect | null>(null)
   const [entrySuppressedPhotoId] = useState(() => (disableEntryTransition ? (photos[currentIndex]?.id ?? null) : null))
 
@@ -202,6 +204,7 @@ export const PhotoViewer = ({
       setIsImageZoomed(false)
       setIsDesktopInspectorVisible(!isMobile)
       setCurrentBlobSrc(null)
+      setReadyPhotoId(null)
       if (!dragDismissExitFrame) {
         resetMobileInteractions()
       }
@@ -256,9 +259,20 @@ export const PhotoViewer = ({
   }, [])
 
   // 处理 blobSrc 变化
-  const handleBlobSrcChange = useCallback((blobSrc: string | null) => {
-    setCurrentBlobSrc(blobSrc)
-  }, [])
+  const handleBlobSrcChange = useCallback(
+    (blobSrc: string | null) => {
+      setCurrentBlobSrc(blobSrc)
+      setReadyPhotoId(blobSrc ? (currentPhoto?.id ?? null) : null)
+    },
+    [currentPhoto?.id],
+  )
+
+  usePhotoPreloader({
+    photos,
+    currentIndex,
+    isOpen,
+    readyPhotoId,
+  })
 
   useEffect(() => {
     if (isMobile && isImageZoomed && isInspectorVisible) {
