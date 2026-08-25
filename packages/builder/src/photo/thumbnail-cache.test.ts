@@ -13,6 +13,8 @@ const defaultOptions: PhotoProcessorOptions = {
   isForceManifest: false,
   isForceMode: false,
   isForceThumbnails: false,
+  xmpKeywordsEnabled: false,
+  xmpRegionsEnabled: false,
 }
 
 test('thumbnail cache is reusable only when the source and thumbnail settings are unchanged', () => {

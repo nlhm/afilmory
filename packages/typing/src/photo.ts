@@ -43,6 +43,57 @@ export interface PhotoInfo {
   description: string
 }
 
+export interface PhotoRegionDimensions {
+  width: number
+  height: number
+  unit: string
+}
+
+export interface PhotoRegionArea {
+  x: number
+  y: number
+  width: number
+  height: number
+  unit: string
+}
+
+export interface PhotoRegion {
+  name: string
+  type?: string
+  area: PhotoRegionArea | null
+  appliedToDimensions: PhotoRegionDimensions | null
+}
+
+export interface ExiftoolXmpDimensions {
+  W?: number
+  H?: number
+  Unit?: string
+}
+
+export interface ExiftoolXmpArea {
+  X?: number
+  Y?: number
+  W?: number
+  H?: number
+  Unit?: string
+}
+
+export interface ExiftoolXmpRegion {
+  Name?: string
+  Type?: string
+  Area?: ExiftoolXmpArea
+}
+
+export interface ExiftoolXmpRegionInfo {
+  AppliedToDimensions?: ExiftoolXmpDimensions
+  RegionList?: ExiftoolXmpRegion[]
+}
+
+export interface PhotoXmpMetadata {
+  keywords: string[]
+  regions: PhotoRegion[]
+}
+
 export interface ImageMetadata {
   width: number
   height: number
@@ -65,6 +116,8 @@ export interface PhotoManifestItem extends PhotoInfo {
   digest: string
   thumbnailDigest: string
   exif: PickedExif | null
+  keywords: string[]
+  regions: PhotoRegion[]
   toneAnalysis: ToneAnalysis | null // 影调分析结果
   location: LocationInfo | null // 地理位置信息（反向地理编码）
   isHDR?: boolean
@@ -183,6 +236,13 @@ export interface PickedExif {
   MicroVideoVersion?: Tags['MicroVideoVersion']
   MicroVideoOffset?: Tags['MicroVideoOffset']
   MicroVideoPresentationTimestampUs?: Tags['MicroVideoPresentationTimestampUs']
+
+  // XMP keyword / region fields returned by exiftool
+  Subject?: string[]
+  Keywords?: string[]
+  WeightedFlatSubject?: string[]
+  HierarchicalSubject?: string[]
+  RegionInfo?: ExiftoolXmpRegionInfo
 }
 
 export type FujiRecipe = {

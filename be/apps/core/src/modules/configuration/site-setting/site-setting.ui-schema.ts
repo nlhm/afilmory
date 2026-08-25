@@ -3,7 +3,7 @@ import { identityUiSchemaT } from '../../ui/ui-schema/ui-schema.i18n'
 import type { UiNode, UiSchema } from '../../ui/ui-schema/ui-schema.type'
 import type { SiteSettingKey } from './site-setting.type'
 
-export const SITE_SETTING_UI_SCHEMA_VERSION = '1.0.0'
+export const SITE_SETTING_UI_SCHEMA_VERSION = '1.1.0'
 
 export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSettingKey> {
   return {
@@ -83,8 +83,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
             key: 'site.accentColor',
             required: true,
             component: {
-              type: 'text',
-              placeholder: '#007bff',
+              type: 'color',
+              supportsOpacity: false,
             },
             icon: 'palette',
           },
@@ -112,6 +112,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
                 key: 'site.social.twitter',
                 component: {
                   type: 'text',
+                  autoCapitalize: 'none',
+                  autoCorrect: false,
                   placeholder: 'https://twitter.com/username',
                 },
                 icon: 'twitter',
@@ -124,6 +126,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
                 key: 'site.social.github',
                 component: {
                   type: 'text',
+                  autoCapitalize: 'none',
+                  autoCorrect: false,
                   placeholder: 'https://github.com/username',
                 },
                 icon: 'github',
@@ -153,6 +157,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
                 key: 'site.feed.folo.challenge.feedId',
                 component: {
                   type: 'text',
+                  autoCapitalize: 'none',
+                  autoCorrect: false,
                   placeholder: t('site.sections.feed.groups.folo.fields.feed-id.placeholder'),
                 },
                 icon: 'hash',
@@ -164,6 +170,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
                 key: 'site.feed.folo.challenge.userId',
                 component: {
                   type: 'text',
+                  autoCapitalize: 'none',
+                  autoCorrect: false,
                   placeholder: t('site.sections.feed.groups.folo.fields.user-id.placeholder'),
                 },
                 icon: 'user',
@@ -187,10 +195,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
             helperText: t('site.sections.map.fields.providers.helper'),
             key: 'site.map.providers',
             component: {
-              type: 'textarea',
-              placeholder: '["maplibre"]',
-              minRows: 3,
-              maxRows: 6,
+              type: 'multiSelect',
+              options: ['maplibre'],
             },
             icon: 'list',
           },
@@ -203,6 +209,8 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
             key: 'site.mapStyle',
             component: {
               type: 'text',
+              autoCapitalize: 'none',
+              autoCorrect: false,
               placeholder: 'builtin',
             },
             icon: 'paintbrush',
@@ -218,6 +226,7 @@ export function createSiteSettingUiSchema(t: UiSchemaTFunction): UiSchema<SiteSe
               type: 'select',
               placeholder: t('site.sections.map.fields.projection.placeholder'),
               options: ['mercator', 'globe'],
+              presentation: 'segmented',
             },
             icon: 'compass',
           },

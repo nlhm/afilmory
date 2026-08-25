@@ -1,9 +1,9 @@
-import { authUsers } from '@afilmory/db'
+import { authUsers, tenantMemberships } from '@afilmory/db'
 import { DbAccessor } from '@core/database/database.provider'
 import { BizException, ErrorCode } from '@core/errors'
 import { normalizeStringToUndefined } from '@core/helpers/normalize.helper'
 import { requireTenantContext } from '@core/modules/platform/tenant/tenant.context'
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { injectable } from 'tsyringe'
 
 import { getUiSchemaTranslator } from '../../ui/ui-schema/ui-schema.i18n'
@@ -13,6 +13,17 @@ import { SettingService } from '../setting/setting.service'
 import type { SiteSettingEntryInput, SiteSettingKey, SiteSettingUiSchemaResponse } from './site-setting.type'
 import { ONBOARDING_SITE_SETTING_KEYS, SITE_SETTING_KEYS } from './site-setting.type'
 import { createSiteSettingUiSchema, SITE_SETTING_UI_SCHEMA_KEYS } from './site-setting.ui-schema'
+
+const DEFAULT_SITE_CONFIG: SiteConfig = {
+  name: 'Default Site',
+  title: 'Default Site',
+  description: 'Default Site',
+  url: '',
+  accentColor: '#007bff',
+  author: {
+    name: '',
+  },
+}
 
 @injectable()
 export class SiteSettingService {
@@ -199,14 +210,15 @@ export class SiteSettingService {
         displayUsername: authUsers.displayUsername,
         username: authUsers.username,
         image: authUsers.image,
-        role: authUsers.role,
+        role: tenantMemberships.role,
         createdAt: authUsers.createdAt,
         updatedAt: authUsers.updatedAt,
       })
       .from(authUsers)
-      .where(eq(authUsers.tenantId, tenant.tenant.id))
+      .innerJoin(tenantMemberships, eq(tenantMemberships.userId, authUsers.id))
+      .where(and(eq(tenantMemberships.tenantId, tenant.tenant.id), eq(tenantMemberships.status, 'active')))
       .orderBy(
-        sql`case when ${authUsers.role} = 'admin' then 0 when ${authUsers.role} = 'superadmin' then 1 else 2 end`,
+        sql`case when ${tenantMemberships.role} = 'owner' then 0 when ${tenantMemberships.role} = 'admin' then 1 else 2 end`,
         asc(authUsers.createdAt),
       )
       .limit(1)
@@ -336,17 +348,6 @@ interface SiteConfig {
   map?: SiteConfigMapProviders
   mapStyle?: string
   mapProjection?: SiteConfigProjection
-}
-
-const DEFAULT_SITE_CONFIG: SiteConfig = {
-  name: 'Default Site',
-  title: 'Default Site',
-  description: 'Default Site',
-  url: '',
-  accentColor: '#007bff',
-  author: {
-    name: '',
-  },
 }
 
 type SiteSettingValueMap = Partial<Record<SiteSettingKey, string | null>>

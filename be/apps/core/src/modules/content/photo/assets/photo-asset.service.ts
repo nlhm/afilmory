@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import path from 'node:path'
 
 import type { BuilderConfig, PhotoManifestItem, StorageConfig, StorageObject } from '@afilmory/builder'
@@ -21,25 +22,22 @@ import type {
   DataSyncResultSummary,
   DataSyncStageTotals,
 } from '@core/modules/infrastructure/data-sync/data-sync.types'
-import { BILLING_USAGE_EVENT } from '@core/modules/platform/billing/billing.constants'
-import { BillingPlanService } from '@core/modules/platform/billing/billing-plan.service'
-import { BillingUsageService } from '@core/modules/platform/billing/billing-usage.service'
-import { StoragePlanService } from '@core/modules/platform/billing/storage-plan.service'
+import { BillingPlanService } from '@core/modules/platform/billing/plan/billing-plan.service'
+import { StoragePlanService } from '@core/modules/platform/billing/plan/storage-plan.service'
+import { quotaExceeded } from '@core/modules/platform/billing/quota/billing-quota.error'
+import { BILLING_USAGE_EVENT } from '@core/modules/platform/billing/usage/billing-usage.constants'
+import { BillingUsageService } from '@core/modules/platform/billing/usage/billing-usage.service'
 import { ManagedStorageService } from '@core/modules/platform/managed-storage/managed-storage.service'
+import { GalleryPushQueue } from '@core/modules/platform/push-notifications/gallery-push.queue'
 import { requireTenantContext } from '@core/modules/platform/tenant/tenant.context'
+import { createLogger } from '@tsuki-hono/common'
 import { EventEmitterService } from '@tsuki-hono/event-emitter'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { injectable } from 'tsyringe'
 
-import { StorageAccessService } from '../access/storage-access.service'
-import {
-  createProxyUrl,
-  formatBytesForDisplay,
-  formatBytesToMb,
-  normalizeKeyPath,
-} from '../access/storage-access.utils'
 import { PhotoBuilderService } from '../builder/photo-builder.service'
 import { PhotoStorageService } from '../storage/photo-storage.service'
+import { formatBytesForDisplay, formatBytesToMb, normalizeKeyPath } from '../storage/storage.utils'
 import type { TransactionalUploadProgressEvent } from '../storage/transactional-storage.manager'
 import { TransactionalStorageManager } from '../storage/transactional-storage.manager'
 import type { PhotoAssetListItem, PhotoAssetRecord, PhotoAssetSummary, UploadAssetInput } from './photo-asset.types'
@@ -50,6 +48,12 @@ const DEFAULT_THUMBNAIL_EXTENSION = {
 }[DEFAULT_CONTENT_TYPE]
 
 const VIDEO_EXTENSIONS = new Set(['mov', 'mp4'])
+
+const BASE_PATH_SUFFIX_PATTERN = /^(.*?)(?:-(\d+))?$/
+const SURROUNDING_SLASHES_PATTERN = /^\/+|\/+$/g
+const PATH_SEPARATORS_PATTERN = /[\\/]+/g
+const WHITESPACE_RUN_PATTERN = /\s+/g
+const TRAILING_SLASHES_PATTERN = /\/+$/
 
 type PreparedUploadPlan = {
   original: UploadAssetInput
@@ -73,16 +77,18 @@ declare module '@tsuki-hono/event-emitter' {
 
 @injectable()
 export class PhotoAssetService {
+  private readonly logger = createLogger('PhotoAssetService')
+
   constructor(
     private readonly eventEmitter: EventEmitterService,
     private readonly dbAccessor: DbAccessor,
     private readonly photoBuilderService: PhotoBuilderService,
     private readonly photoStorageService: PhotoStorageService,
-    private readonly storageAccessService: StorageAccessService,
     private readonly billingPlanService: BillingPlanService,
     private readonly billingUsageService: BillingUsageService,
     private readonly storagePlanService: StoragePlanService,
     private readonly managedStorageService: ManagedStorageService,
+    private readonly galleryPushQueue: GalleryPushQueue,
   ) {}
 
   private async emitManifestChanged(tenantId: string): Promise<void> {
@@ -105,18 +111,12 @@ export class PhotoAssetService {
 
     const { builderConfig, storageConfig } = await this.photoStorageService.resolveConfigForTenant(tenant.tenant.id)
     const storageManager = await this.createStorageManager(builderConfig, storageConfig)
-    const secureAccessEnabled = await this.storageAccessService.resolveSecureAccessPreference(
-      storageConfig,
-      tenant.tenant.id,
-    )
-
     return await Promise.all(
       records.map(async (record) => {
         const publicUrl = await this.resolvePublicUrlForRecord({
           storageManager,
           storageKey: record.storageKey,
           storageProvider: record.storageProvider,
-          secureAccessEnabled,
         })
 
         return {
@@ -153,8 +153,10 @@ export class PhotoAssetService {
     }
 
     for (const record of records) {
-      if (record.status === 'synced') summary.synced += 1
-      else if (record.status === 'conflict') summary.conflicts += 1
+      if (record.status === 'synced')
+        summary.synced += 1
+      else if (record.status === 'conflict')
+        summary.conflicts += 1
       else summary.pending += 1
     }
 
@@ -189,7 +191,7 @@ export class PhotoAssetService {
       .from(photoAssets)
       .where(and(eq(photoAssets.tenantId, tenant.tenant.id), inArray(photoAssets.photoId, photoIds)))
 
-    return records.map((record) => record.manifest.data)
+    return records.map(record => record.manifest.data)
   }
 
   async deleteAssets(ids: readonly string[], options?: { deleteFromStorage?: boolean }): Promise<void> {
@@ -233,7 +235,8 @@ export class PhotoAssetService {
           if (managedProviderKey) {
             managedKeysToDelete.add(normalizeKeyPath(record.storageKey))
           }
-        } catch (error) {
+        }
+        catch (error) {
           throw new BizException(ErrorCode.IMAGE_PROCESSING_FAILED, {
             message: `无法删除存储中的文件 ${record.storageKey}: ${String(error)}`,
           })
@@ -249,7 +252,8 @@ export class PhotoAssetService {
             if (managedProviderKey) {
               managedKeysToDelete.add(normalizeKeyPath(videoKey))
             }
-          } catch {
+          }
+          catch {
             // 忽略缺失的 Live Photo 视频文件
             deletedVideoKeys.add(videoKey)
           }
@@ -260,7 +264,8 @@ export class PhotoAssetService {
           try {
             await storageManager.deleteFile(thumbnailKey)
             deletedThumbnailKeys.add(thumbnailKey)
-          } catch (error) {
+          }
+          catch (error) {
             throw new BizException(ErrorCode.IMAGE_PROCESSING_FAILED, {
               message: `无法删除缩略图文件 ${thumbnailKey}: ${String(error)}`,
             })
@@ -272,7 +277,7 @@ export class PhotoAssetService {
     await db.delete(photoAssets).where(and(eq(photoAssets.tenantId, tenant.tenant.id), inArray(photoAssets.id, ids)))
 
     if (managedProviderKey && storageConfigForDeletion) {
-      const keys = [...managedKeysToDelete].filter((key) => key.length > 0)
+      const keys = [...managedKeysToDelete].filter(key => key.length > 0)
       if (keys.length > 0) {
         await this.managedStorageService.deleteFileReferences(managedProviderKey, keys, tenant.tenant.id)
       }
@@ -313,10 +318,6 @@ export class PhotoAssetService {
     builder.setStorageManager(transactionalStorageManager)
     await builder.ensurePluginsReady()
     const storageManager = transactionalStorageManager
-    const secureAccessEnabled = await this.storageAccessService.resolveSecureAccessPreference(
-      storageConfig,
-      tenant.tenant.id,
-    )
     const { photoPlans, videoPlans } = this.prepareUploadPlans(inputs, storageConfig)
     const unmatchedVideoBaseNames = this.validateLivePhotoPairs(photoPlans, videoPlans)
 
@@ -329,10 +330,10 @@ export class PhotoAssetService {
 
     const builderLogEmitter: DataSyncProgressEmitter | undefined = options?.progress
       ? async (event) => {
-          if (event.type === 'log') {
-            await emitProgress(event)
-          }
+        if (event.type === 'log') {
+          await emitProgress(event)
         }
+      }
       : undefined
 
     const emitLog = async (message: string, level: DataSyncLogLevel = 'info') => {
@@ -365,14 +366,7 @@ export class PhotoAssetService {
         items: existingItemsRaw,
         keySet: existingPhotoKeySet,
         baseNameMap: existingBaseNameMap,
-      } = await this.collectExistingPhotoRecords(
-        photoPlans,
-        videoPlans,
-        tenant.tenant.id,
-        storageManager,
-        db,
-        secureAccessEnabled,
-      )
+      } = await this.collectExistingPhotoRecords(photoPlans, videoPlans, tenant.tenant.id, storageManager, db)
       throwIfAborted()
 
       const existingPhotoIds = await this.collectExistingPhotoIds(photoPlans, tenant.tenant.id, db)
@@ -383,7 +377,7 @@ export class PhotoAssetService {
         this.applyGroupAdjustmentsToVideos(videoPlans, groupOverrides)
       }
 
-      const pendingPhotoPlans = photoPlans.filter((plan) => !existingPhotoKeySet.has(plan.storageKey))
+      const pendingPhotoPlans = photoPlans.filter(plan => !existingPhotoKeySet.has(plan.storageKey))
       await this.billingPlanService.ensurePhotoProcessingAllowance(tenant.tenant.id, pendingPhotoPlans.length)
       const libraryLimit = planQuota.libraryItemLimit
       await this.ensurePhotoLibraryCapacity(tenant.tenant.id, db, pendingPhotoPlans.length, libraryLimit)
@@ -392,8 +386,8 @@ export class PhotoAssetService {
       const additionalPhotoPlans = this.createExistingPhotoPlansForVideos(unmatchedVideoBaseNames, existingBaseNameMap)
 
       const unresolvedVideoFiles = videoPlans
-        .filter((plan) => unmatchedVideoBaseNames.has(plan.baseName) && !existingBaseNameMap.has(plan.baseName))
-        .map((plan) => plan.original.filename)
+        .filter(plan => unmatchedVideoBaseNames.has(plan.baseName) && !existingBaseNameMap.has(plan.baseName))
+        .map(plan => plan.original.filename)
 
       if (unresolvedVideoFiles.length > 0) {
         const filenames = unresolvedVideoFiles.join(', ')
@@ -404,8 +398,8 @@ export class PhotoAssetService {
 
       const allPendingPhotoPlans = [...pendingPhotoPlans, ...additionalPhotoPlans]
 
-      const reprocessedKeys = new Set(allPendingPhotoPlans.map((plan) => plan.storageKey))
-      const existingItems = existingItemsRaw.filter((item) => !reprocessedKeys.has(item.storageKey))
+      const reprocessedKeys = new Set(allPendingPhotoPlans.map(plan => plan.storageKey))
+      const existingItems = existingItemsRaw.filter(item => !reprocessedKeys.has(item.storageKey))
 
       const activeVideoPlans = this.selectActiveVideoPlans(allPendingPhotoPlans, videoPlans)
       const existingStorageMap = await this.buildExistingStorageMap(
@@ -518,7 +512,6 @@ export class PhotoAssetService {
         abortSignal: options?.abortSignal,
         builderLogEmitter,
         progressEmitter: options?.progress,
-        secureAccessEnabled,
         onProcessed: async ({ storageObject, manifestItem }) => {
           throwIfAborted()
           processedCount += 1
@@ -594,12 +587,16 @@ export class PhotoAssetService {
             uploadSource: 'manual-upload',
           },
         })
+        await this.galleryPushQueue.enqueueGalleryPublished(tenant.tenant.id, processedItems.length).catch((error) => {
+          this.logger.error('Failed to queue gallery update notifications', error)
+        })
       }
 
       shouldRollbackUploads = false
       await this.recordManagedStorageSnapshot(storageConfig, tenant.tenant.id)
       return result
-    } catch (error) {
+    }
+    catch (error) {
       if (shouldRollbackUploads) {
         await storageManager.rollbackUploads().catch(() => {})
       }
@@ -610,7 +607,7 @@ export class PhotoAssetService {
   private prepareUploadPlans(
     inputs: readonly UploadAssetInput[],
     storageConfig: StorageConfig,
-  ): { photoPlans: PreparedUploadPlan[]; videoPlans: PreparedUploadPlan[] } {
+  ): { photoPlans: PreparedUploadPlan[], videoPlans: PreparedUploadPlan[] } {
     const photoSequenceMap = new Map<string, number>()
     const videoSequenceMap = new Map<string, number>()
     const plans: PreparedUploadPlan[] = []
@@ -635,8 +632,8 @@ export class PhotoAssetService {
     }
 
     return {
-      photoPlans: plans.filter((plan) => !plan.isVideo),
-      videoPlans: plans.filter((plan) => plan.isVideo),
+      photoPlans: plans.filter(plan => !plan.isVideo),
+      videoPlans: plans.filter(plan => plan.isVideo),
     }
   }
 
@@ -695,7 +692,7 @@ export class PhotoAssetService {
       return unmatchedBaseNames
     }
 
-    const photoBaseNames = new Set(photoPlans.map((plan) => plan.baseName))
+    const photoBaseNames = new Set(photoPlans.map(plan => plan.baseName))
     for (const plan of videoPlans) {
       if (!photoBaseNames.has(plan.baseName)) {
         unmatchedBaseNames.add(plan.baseName)
@@ -711,7 +708,6 @@ export class PhotoAssetService {
     tenantId: string,
     storageManager: StorageManager,
     db: ReturnType<DbAccessor['get']>,
-    secureAccessEnabled: boolean,
   ): Promise<{
     items: PhotoAssetListItem[]
     keySet: Set<string>
@@ -720,7 +716,7 @@ export class PhotoAssetService {
     const recordMap = new Map<string, typeof photoAssets.$inferSelect>()
     const baseNameMap = new Map<string, typeof photoAssets.$inferSelect>()
 
-    const photoStorageKeys = photoPlans.map((plan) => plan.storageKey)
+    const photoStorageKeys = photoPlans.map(plan => plan.storageKey)
     if (photoStorageKeys.length > 0) {
       const records = await db
         .select()
@@ -733,7 +729,7 @@ export class PhotoAssetService {
       }
     }
 
-    const videoBaseNames = new Set(videoPlans.map((plan) => plan.baseName))
+    const videoBaseNames = new Set(videoPlans.map(plan => plan.baseName))
     for (const baseName of videoBaseNames) {
       if (baseNameMap.has(baseName)) {
         continue
@@ -764,7 +760,6 @@ export class PhotoAssetService {
           storageManager,
           storageKey: record.storageKey,
           storageProvider: record.storageProvider,
-          secureAccessEnabled,
         })
 
         return {
@@ -801,7 +796,7 @@ export class PhotoAssetService {
       .from(photoAssets)
       .where(eq(photoAssets.tenantId, tenantId))
 
-    return new Set(rows.map((row) => row.photoId))
+    return new Set(rows.map(row => row.photoId))
   }
 
   private createExistingPhotoPlansForVideos(
@@ -840,7 +835,7 @@ export class PhotoAssetService {
       return []
     }
 
-    const pendingBaseNames = new Set(pendingPhotoPlans.map((plan) => plan.baseName))
+    const pendingBaseNames = new Set(pendingPhotoPlans.map(plan => plan.baseName))
     const seenVideoBaseNames = new Set<string>()
     const activePlans: PreparedUploadPlan[] = []
 
@@ -936,7 +931,6 @@ export class PhotoAssetService {
     abortSignal?: AbortSignal
     builderLogEmitter?: DataSyncProgressEmitter
     progressEmitter?: DataSyncProgressEmitter
-    secureAccessEnabled: boolean
     onProcessed?: (payload: {
       plan: PreparedUploadPlan
       storageObject: StorageObject
@@ -957,7 +951,6 @@ export class PhotoAssetService {
       abortSignal,
       builderLogEmitter,
       progressEmitter,
-      secureAccessEnabled,
       onProcessed,
     } = params
 
@@ -987,8 +980,8 @@ export class PhotoAssetService {
           const totalBytes = event.totalBytes ?? sizeBytes
           const readableUploaded = formatBytesForDisplay(uploadedBytes)
           const readableTotal = totalBytes ? formatBytesForDisplay(totalBytes) : readableSize
-          const percentage =
-            totalBytes && totalBytes > 0 ? `（${Math.min(100, Math.round((uploadedBytes / totalBytes) * 100))}%）` : ''
+          const percentage
+            = totalBytes && totalBytes > 0 ? `（${Math.min(100, Math.round((uploadedBytes / totalBytes) * 100))}%）` : ''
           message = `${baseMessage} 上传中 ${event.key} ${readableUploaded}/${readableTotal}${percentage}`
 
           break
@@ -1002,8 +995,8 @@ export class PhotoAssetService {
         }
         default: {
           level = 'error'
-          const reason =
-            event.error instanceof Error
+          const reason
+            = event.error instanceof Error
               ? event.error.message
               : typeof event.error === 'string'
                 ? event.error
@@ -1093,8 +1086,7 @@ export class PhotoAssetService {
           },
           livePhotoMap,
           prefetchedBuffers,
-        }),
-      )
+        }))
 
       const item = processed?.item
       if (!item) {
@@ -1159,21 +1151,20 @@ export class PhotoAssetService {
         })
         .returning()
 
-      const saved =
-        record ??
-        (
-          await db
-            .select()
-            .from(photoAssets)
-            .where(and(eq(photoAssets.tenantId, tenantId), eq(photoAssets.storageKey, resolvedPhotoKey)))
-            .limit(1)
-        )[0]
+      const saved
+        = record
+          ?? (
+            await db
+              .select()
+              .from(photoAssets)
+              .where(and(eq(photoAssets.tenantId, tenantId), eq(photoAssets.storageKey, resolvedPhotoKey)))
+              .limit(1)
+          )[0]
 
       const publicUrl = await this.resolvePublicUrlForRecord({
         storageManager,
         storageKey: resolvedPhotoKey,
         storageProvider: storageConfig.provider,
-        secureAccessEnabled,
       })
 
       await this.recordManagedStorageReferences(storageConfig, tenantId, [
@@ -1233,7 +1224,7 @@ export class PhotoAssetService {
       .from(photoAssets)
       .where(and(eq(photoAssets.tenantId, tenant.tenant.id), eq(photoAssets.id, assetId)))
       .limit(1)
-      .then((rows) => rows[0])
+      .then(rows => rows[0])
 
     if (!record) {
       throw new BizException(ErrorCode.COMMON_NOT_FOUND, { message: '未找到指定的图片资源' })
@@ -1250,11 +1241,6 @@ export class PhotoAssetService {
     const normalizedTags = this.normalizeTagList(tagsInput)
     const { builderConfig, storageConfig } = await this.photoStorageService.resolveConfigForTenant(tenant.tenant.id)
     const storageManager = await this.createStorageManager(builderConfig, storageConfig)
-    const secureAccessEnabled = await this.storageAccessService.resolveSecureAccessPreference(
-      storageConfig,
-      tenant.tenant.id,
-    )
-
     const sanitizeKey = normalizeKeyPath(record.storageKey)
     const normalizeStorageKey = createStorageKeyNormalizer(storageConfig)
     const relativeKey = normalizeStorageKey(sanitizeKey)
@@ -1336,7 +1322,6 @@ export class PhotoAssetService {
       storageManager,
       storageKey: saved.storageKey,
       storageProvider: saved.storageProvider,
-      secureAccessEnabled,
     })
 
     await this.emitManifestChanged(tenant.tenant.id)
@@ -1419,7 +1404,7 @@ export class PhotoAssetService {
     }
   }
 
-  private computeMetadataHash(parts: { size: number | null; etag: string | null; lastModified: string | null }) {
+  private computeMetadataHash(parts: { size: number | null, etag: string | null, lastModified: string | null }) {
     const normalizedSize = parts.size !== null ? String(parts.size) : ''
     const normalizedEtag = parts.etag ?? ''
     const normalizedLastModified = parts.lastModified ?? ''
@@ -1448,8 +1433,10 @@ export class PhotoAssetService {
 
       const displayLimit = limitMb ?? formatBytesToMb(maxBytes)
       const actualSize = formatBytesToMb(size)
-      throw new BizException(ErrorCode.COMMON_BAD_REQUEST, {
+      throw quotaExceeded({
+        reason: 'upload_size',
         message: `文件 ${input.filename} (${actualSize} MB) 超出允许的单张大小 ${displayLimit} MB`,
+        details: { limitMb: limitMb ?? maxBytes / 1024 / 1024, actualMb: size / 1024 / 1024 },
       })
     }
   }
@@ -1473,8 +1460,10 @@ export class PhotoAssetService {
 
     const current = await this.countTenantPhotos(tenantId, db)
     if (current + newPhotos > limit) {
-      throw new BizException(ErrorCode.COMMON_BAD_REQUEST, {
+      throw quotaExceeded({
+        reason: 'library_items',
         message: `当前图库已有 ${current} 张图片，超过上限 ${limit}，无法继续上传`,
+        details: { limit, current },
       })
     }
   }
@@ -1487,7 +1476,7 @@ export class PhotoAssetService {
     return typeof row?.total === 'number' ? row.total : Number(row?.total ?? 0)
   }
 
-  private splitStorageKey(storageKey: string): { basePath: string; extension: string } {
+  private splitStorageKey(storageKey: string): { basePath: string, extension: string } {
     const extension = path.extname(storageKey)
     if (!extension) {
       return { basePath: storageKey, extension: '' }
@@ -1545,8 +1534,8 @@ export class PhotoAssetService {
     return `${root}-${nextIndex}${extension}`
   }
 
-  private splitBaseAndNumericSuffix(basePath: string): { root: string; suffix: number | null } {
-    const match = basePath.match(/^(.*?)(?:-(\d+))?$/)
+  private splitBaseAndNumericSuffix(basePath: string): { root: string, suffix: number | null } {
+    const match = basePath.match(BASE_PATH_SUFFIX_PATTERN)
     if (!match) {
       return { root: basePath, suffix: null }
     }
@@ -1650,7 +1639,7 @@ export class PhotoAssetService {
       return null
     }
 
-    const normalized = trimmed.replaceAll('\\', '/').replaceAll(/^\/+|\/+$/g, '')
+    const normalized = trimmed.replaceAll('\\', '/').replaceAll(SURROUNDING_SLASHES_PATTERN, '')
     return normalized.length > 0 ? normalized : null
   }
 
@@ -1660,7 +1649,7 @@ export class PhotoAssetService {
       if (!segment) {
         continue
       }
-      filtered.push(segment.replaceAll(/^\/+|\/+$/g, ''))
+      filtered.push(segment.replaceAll(SURROUNDING_SLASHES_PATTERN, ''))
     }
 
     if (filtered.length === 0) {
@@ -1678,7 +1667,7 @@ export class PhotoAssetService {
     }
 
     const variants = ['.mov', '.MOV', '.mp4', '.MP4']
-    return variants.map((variant) => `${base}${variant}`)
+    return variants.map(variant => `${base}${variant}`)
   }
 
   private normalizeStorageObjectKey(object: StorageObject, fallbackKey: string): StorageObject {
@@ -1721,10 +1710,7 @@ export class PhotoAssetService {
       if (typeof raw !== 'string') {
         continue
       }
-      const sanitized = raw
-        .replaceAll(/[\\/]+/g, '-')
-        .replaceAll(/\s+/g, ' ')
-        .trim()
+      const sanitized = raw.replaceAll(PATH_SEPARATORS_PATTERN, '-').replaceAll(WHITESPACE_RUN_PATTERN, ' ').trim()
       if (!sanitized || sanitized === '.' || sanitized === '..') {
         continue
       }
@@ -1753,7 +1739,7 @@ export class PhotoAssetService {
       return null
     }
 
-    const prefix = fullKey.slice(0, diffLength).replace(/\/+$/, '')
+    const prefix = fullKey.slice(0, diffLength).replace(TRAILING_SLASHES_PATTERN, '')
     return prefix.length > 0 ? prefix : null
   }
 
@@ -1775,7 +1761,7 @@ export class PhotoAssetService {
     pendingPhotoPlans: PreparedUploadPlan[],
     activeVideoPlans: PreparedUploadPlan[],
     existingStorageMap: Map<string, StorageObject>,
-  ): { providerKey: string | null; incomingBytes: number; incomingFiles: number } {
+  ): { providerKey: string | null, incomingBytes: number, incomingFiles: number } {
     const providerKey = this.resolveManagedProviderKey(storageConfig)
     if (!providerKey) {
       return { providerKey: null, incomingBytes: 0, incomingFiles: 0 }
@@ -1828,10 +1814,12 @@ export class PhotoAssetService {
         totalBytes: usage.totalBytes,
         fileCount: usage.fileCount,
       })
-      throw new BizException(ErrorCode.BILLING_STORAGE_QUOTA_EXCEEDED, {
+      throw quotaExceeded({
+        reason: 'storage',
         message: `托管存储空间已超出套餐上限：当前已用 ${formatBytesForDisplay(
           usage.totalBytes,
         )}，套餐上限 ${formatBytesForDisplay(capacity)}。请清理空间或升级存储方案后再试。`,
+        details: { capacityBytes: capacity, usedBytes: usage.totalBytes, incomingBytes: params.incomingBytes },
       })
     }
 
@@ -1843,12 +1831,14 @@ export class PhotoAssetService {
         totalBytes: usage.totalBytes,
         fileCount: usage.fileCount,
       })
-      throw new BizException(ErrorCode.BILLING_STORAGE_QUOTA_EXCEEDED, {
+      throw quotaExceeded({
+        reason: 'storage',
         message: `托管存储空间不足：当前已用 ${formatBytesForDisplay(
           usage.totalBytes,
         )}，上传后预计 ${formatBytesForDisplay(projectedBytes)}，已超过套餐上限 ${formatBytesForDisplay(
           capacity,
         )}。请清理空间或升级存储方案后再试。`,
+        details: { capacityBytes: capacity, usedBytes: usage.totalBytes, incomingBytes: params.incomingBytes },
       })
     }
   }
@@ -1876,12 +1866,12 @@ export class PhotoAssetService {
     }
 
     const tasks = references
-      .map((reference) => ({
+      .map(reference => ({
         ...reference,
         storageKey: normalizeKeyPath(reference.storageKey),
       }))
-      .filter((reference) => reference.storageKey.length > 0)
-      .map((reference) =>
+      .filter(reference => reference.storageKey.length > 0)
+      .map(reference =>
         this.managedStorageService.upsertFileReference({
           tenantId,
           providerKey,
@@ -1892,8 +1882,7 @@ export class PhotoAssetService {
           etag: reference.etag ?? null,
           referenceType: reference.referenceType ?? null,
           referenceId: reference.referenceId ?? null,
-        }),
-      )
+        }))
 
     if (tasks.length === 0) {
       return
@@ -1925,7 +1914,7 @@ export class PhotoAssetService {
     manifest: PhotoManifestItem,
     storageManager: StorageManager,
     newPhotoKey: string,
-  ): Promise<{ s3Key: string; videoUrl: string } | null> {
+  ): Promise<{ s3Key: string, videoUrl: string } | null> {
     const { video } = manifest
     if (!video || video.type !== 'live-photo' || !video.s3Key) {
       return null
@@ -1962,21 +1951,16 @@ export class PhotoAssetService {
     storageManager: StorageManager
     storageKey: string
     storageProvider: string
-    secureAccessEnabled: boolean
-    intent?: string
   }): Promise<string | null> {
-    const { storageManager, storageKey, storageProvider, secureAccessEnabled, intent } = params
+    const { storageManager, storageKey, storageProvider } = params
     if (storageProvider === DATABASE_ONLY_PROVIDER) {
       return null
     }
 
-    if (secureAccessEnabled) {
-      return createProxyUrl(storageKey, intent)
-    }
-
     try {
       return await Promise.resolve(storageManager.generatePublicUrl(storageKey))
-    } catch {
+    }
+    catch {
       return null
     }
   }
