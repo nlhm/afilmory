@@ -127,14 +127,14 @@ export async function getProtectedMediaBlob(src: string): Promise<Blob | null> {
     }
 
     const blob = await response.blob()
-    await queueCacheMutation(async () => {
+    void queueCacheMutation(async () => {
       const metadata = await readMetadata(cache)
       metadata.entries[cacheKey] = {
         lastAccessedAt: Date.now(),
         size: readCachedSize(response) || blob.size,
       }
       await writeMetadata(cache, metadata)
-    })
+    }).catch(error => console.warn('Failed to update protected media cache metadata:', error))
 
     return blob
   }
