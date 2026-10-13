@@ -1,5 +1,6 @@
 import { LoadingState } from './enum'
 import { ImageViewerEngineBase } from './ImageViewerEngineBase'
+import { projectImageViewport } from './viewport-projection'
 import type { DebugInfo, WebGLImageViewerProps, WebGLViewportState } from './interface'
 import { createShader, FRAGMENT_SHADER_SOURCE, VERTEX_SHADER_SOURCE } from './shaders'
 import TextureWorkerRaw from './texture.worker?raw'
@@ -494,6 +495,21 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
         payload: { url },
       })
     })
+  }
+
+  restoreViewport(viewport: WebGLViewportState) {
+    const projected = projectImageViewport(viewport, {
+      containerWidth: this.canvasWidth,
+      containerHeight: this.canvasHeight,
+      imageWidth: this.imageWidth,
+      imageHeight: this.imageHeight,
+    })
+    this.scale = projected.scale
+    this.translateX = projected.translateX
+    this.translateY = projected.translateY
+    this.constrainScaleAndPosition()
+    this.render()
+    this.notifyZoomChange()
   }
 
   private setupInitialScaling() {

@@ -105,6 +105,10 @@ export interface PhotoManifestItem extends PhotoInfo {
   originalUrl: string
   format: string
   thumbnailUrl: string
+  previewUrl: string
+  previewDigest: string
+  previewWidth: number
+  previewHeight: number
   ogImageUrl?: string | null
   thumbHash: string | null
   width: number

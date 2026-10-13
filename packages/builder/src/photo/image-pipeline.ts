@@ -8,6 +8,7 @@ import sharp from 'sharp'
 
 import type { BuilderOptions } from '../builder/builder.js'
 import { extractXmpMetadataFromExif } from '../image/exif.js'
+import { generatePhotoPreview } from '../image/preview.js'
 import {
   convertBmpToJpegSharpInstance,
   getImageMetadataWithSharp,
@@ -163,7 +164,7 @@ export async function executePhotoProcessingPipeline(
   context: PhotoProcessingContext,
 ): Promise<PhotoManifestItem | null> {
   const { photoKey, obj, existingItem, livePhotoMap, options } = context
-  const { storageManager } = getPhotoExecutionContext()
+  const { storageManager, builder } = getPhotoExecutionContext()
   const loggers = getGlobalLoggers()
   // Generate the actual photo ID with digest suffix
   const photoId = await generatePhotoId(photoKey)
@@ -192,6 +193,15 @@ export async function executePhotoProcessingPipeline(
       existingItem,
       options,
       sourceChanged,
+    )
+
+    const preview = await generatePhotoPreview(
+      imageBuffer,
+      photoId,
+      existingItem,
+      options.isForceMode || options.isForceThumbnails || sourceChanged,
+      !options.dryRun,
+      builder.getConfig().system.processing.limitInputPixels,
     )
 
     context.pluginData[THUMBNAIL_PLUGIN_DATA_KEY] = {
@@ -252,6 +262,7 @@ export async function executePhotoProcessingPipeline(
       tags: options.xmpKeywordsEnabled ? mergeUniqueTags(photoInfo.tags, xmpKeywords) : photoInfo.tags,
       originalUrl: await storageManager.generatePublicUrl(photoKey),
       thumbnailUrl: thumbnailResult.thumbnailUrl,
+      ...preview,
       thumbHash: thumbnailResult.thumbHash ? compressUint8Array(thumbnailResult.thumbHash) : null,
       width: metadata.width,
       height: metadata.height,

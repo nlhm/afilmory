@@ -57,11 +57,13 @@ export default function githubRepoSyncPlugin(options: GitHubRepoSyncPluginOption
             cwd: workdir,
             stdio: 'inherit',
           })`git clone ${repoUrl} assets-git`
-        } else {
+        }
+        else {
           logger.main.info('🔄 拉取远程仓库更新...')
           try {
             await $({ cwd: assetsGitDir, stdio: 'inherit' })`git pull --rebase`
-          } catch {
+          }
+          catch {
             logger.main.warn('⚠️ git pull 失败，尝试重新克隆远程仓库...')
             logger.main.info('🗑️ 删除现有仓库目录...')
             await $({ cwd: workdir, stdio: 'inherit' })`rm -rf assets-git`
@@ -112,13 +114,7 @@ interface PrepareRepositoryLayoutOptions {
 }
 
 async function prepareRepositoryLayout({ assetsGitDir, logger }: PrepareRepositoryLayoutOptions): Promise<void> {
-  const thumbnailsSourceDir = path.resolve(assetsGitDir, 'thumbnails')
   const manifestSourcePath = path.resolve(assetsGitDir, 'photos-manifest.json')
-
-  if (!existsSync(thumbnailsSourceDir)) {
-    logger.main.info('📁 创建 thumbnails 目录...')
-    await $({ cwd: assetsGitDir, stdio: 'inherit' })`mkdir -p thumbnails`
-  }
 
   if (!existsSync(manifestSourcePath)) {
     logger.main.info('📄 创建初始 manifest 文件...')
@@ -127,14 +123,13 @@ async function prepareRepositoryLayout({ assetsGitDir, logger }: PrepareReposito
     await fs.writeFile(manifestSourcePath, initial)
   }
 
-  const thumbnailsDir = path.resolve(workdir, 'public', 'thumbnails')
-  if (existsSync(thumbnailsDir)) {
-    await $({ cwd: workdir, stdio: 'inherit' })`rm -rf ${thumbnailsDir}`
+  for (const directory of ['thumbnails', 'previews']) {
+    const source = path.resolve(assetsGitDir, directory)
+    const target = path.resolve(workdir, 'public', directory)
+    await fs.mkdir(source, { recursive: true })
+    await fs.rm(target, { recursive: true, force: true })
+    await fs.symlink(source, target)
   }
-  await $({
-    cwd: workdir,
-    stdio: 'inherit',
-  })`ln -s ${thumbnailsSourceDir} ${thumbnailsDir}`
 
   const photosManifestPath = path.resolve(workdir, 'src', 'data', 'photos-manifest.json')
   if (existsSync(photosManifestPath)) {
@@ -206,7 +201,8 @@ async function pushUpdatesToRemoteRepo({
 async function ensureGitUserConfigured(assetsGitDir: string): Promise<void> {
   try {
     await $({ cwd: assetsGitDir, stdio: 'pipe' })`git config user.name`
-  } catch {
+  }
+  catch {
     await $({
       cwd: assetsGitDir,
       stdio: 'pipe',
@@ -260,7 +256,8 @@ async function getCurrentBranch(assetsGitDir: string): Promise<string | null> {
       return null
     }
     return branch
-  } catch {
+  }
+  catch {
     return null
   }
 }
@@ -269,7 +266,8 @@ async function branchExistsLocally(assetsGitDir: string, branchName: string): Pr
   try {
     await $({ cwd: assetsGitDir, stdio: 'pipe' })`git show-ref --verify --quiet refs/heads/${branchName}`
     return true
-  } catch {
+  }
+  catch {
     return false
   }
 }
@@ -278,15 +276,14 @@ async function remoteBranchExists(assetsGitDir: string, branchName: string): Pro
   try {
     await $({ cwd: assetsGitDir, stdio: 'pipe' })`git rev-parse --verify origin/${branchName}`
     return true
-  } catch {
+  }
+  catch {
     return false
   }
 }
 
 function buildAuthenticatedRepoUrl(url: string, token?: string): string {
-  if (!token) return url
-
-  if (url.startsWith('https://github.com/')) {
+  if (token && url.startsWith('https://github.com/')) {
     const urlWithoutProtocol = url.replace('https://', '')
     return `https://${token}@${urlWithoutProtocol}`
   }

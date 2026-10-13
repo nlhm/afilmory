@@ -26,6 +26,10 @@ export interface ServerPhotoManifestItem {
   s3Key: string
   thumbnailDigest: string
   thumbnailUrl: string
+  previewUrl: string
+  previewDigest: string
+  previewWidth: number
+  previewHeight: number
   video?: ServerVideoSource
 }
 
@@ -94,6 +98,7 @@ const transformPhoto = (photo: ServerPhotoManifestItem): BrowserPhotoManifestIte
     ...browserPhoto,
     originalUrl: getMediaUrl(photo.id, 'original', photo.digest),
     thumbnailUrl: getInternalThumbnailUrl(photo.thumbnailUrl, photo.id, thumbnailVersion),
+    previewUrl: `/previews/${photo.id.split('/').map(encodeURIComponent).join('/')}.jpg${getVersionedThumbnailSuffix(photo.previewDigest)}`,
     video: transformVideo(photo.id, video),
   }
 }

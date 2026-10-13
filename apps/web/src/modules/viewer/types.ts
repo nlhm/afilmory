@@ -22,6 +22,10 @@ export type VideoSource
 export interface ProgressiveImageProps {
   src: string
   thumbnailSrc?: string
+  previewSrc?: string
+  previewWidth?: number
+  previewHeight?: number
+  onResourceReady?: () => void
 
   alt: string
   width?: number

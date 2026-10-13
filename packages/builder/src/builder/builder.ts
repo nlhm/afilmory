@@ -3,6 +3,7 @@ import process from 'node:process'
 
 import type { AfilmoryManifest, CameraInfo, LensInfo, PhotoManifestItem, ProcessPhotoResult } from '@afilmory/typing'
 
+import { previewExists } from '../image/preview.js'
 import { thumbnailExists } from '../image/thumbnail.js'
 import { logger } from '../logger/index.js'
 import { handleDeletedPhotos, loadExistingManifest, needsUpdate, saveManifest } from '../manifest/manager.js'
@@ -540,15 +541,15 @@ export class AfilmoryBuilder {
   private async loadExistingManifest(options: BuilderOptions): Promise<AfilmoryManifest> {
     return options.isForceMode || options.isForceManifest
       ? {
-        version: CURRENT_MANIFEST_VERSION,
-        data: [],
-        cameras: [],
-        lenses: [],
-      }
+          version: CURRENT_MANIFEST_VERSION,
+          data: [],
+          cameras: [],
+          lenses: [],
+        }
       : await loadExistingManifest({
-        allowWrite: !options.dryRun,
-        allowMigrate: !options.dryRun,
-      })
+          allowWrite: !options.dryRun,
+          allowMigrate: !options.dryRun,
+        })
   }
 
   private async detectLivePhotos(
@@ -767,8 +768,8 @@ export class AfilmoryBuilder {
 
     for (const obj of imageObjects) {
       const { key } = obj
-      const photoId = path.basename(key, path.extname(key))
       const existingItem = existingManifestMap.get(key)
+      const photoId = existingItem?.id ?? path.basename(key, path.extname(key))
 
       // 新图片需要处理
       if (!existingItem) {
@@ -791,7 +792,7 @@ export class AfilmoryBuilder {
 
       const needsXmpBackfill
         = !Array.isArray((existingItem as Partial<PhotoManifestItem>).keywords)
-        || !Array.isArray((existingItem as Partial<PhotoManifestItem>).regions)
+          || !Array.isArray((existingItem as Partial<PhotoManifestItem>).regions)
 
       if (needsXmpBackfill) {
         tasksToProcess.push(obj)
@@ -800,7 +801,8 @@ export class AfilmoryBuilder {
 
       // 检查缩略图是否存在，如果不存在或强制刷新缩略图则需要处理
       const hasThumbnail = await thumbnailExists(photoId)
-      if (!hasThumbnail || options.isForceThumbnails) {
+      const hasPreview = Boolean(existingItem.previewDigest && existingItem.previewWidth && existingItem.previewHeight) && await previewExists(photoId)
+      if (!hasThumbnail || !hasPreview || options.isForceThumbnails) {
         tasksToProcess.push(obj)
         continue
       }

@@ -16,7 +16,7 @@ import {
   defaultWheelConfig,
 } from './constants'
 import DebugInfoComponent from './DebugInfo'
-import type { DebugInfo, WebGLImageViewerProps, WebGLImageViewerRef } from './interface'
+import type { DebugInfo, WebGLImageViewerProps, WebGLImageViewerRef, WebGLViewportState } from './interface'
 import { WebGLImageViewerEngine } from './WebGLImageViewerEngine'
 
 /**
@@ -25,6 +25,7 @@ import { WebGLImageViewerEngine } from './WebGLImageViewerEngine'
 export const WebGLImageViewer = ({
   ref,
   src,
+  resourceId,
   className = '',
   width,
   height,
@@ -48,10 +49,13 @@ export const WebGLImageViewer = ({
   ...divProps
 }: WebGLImageViewerProps
   & Omit<React.HTMLAttributes<HTMLDivElement>, 'className'> & {
+    resourceId?: string
     ref?: React.RefObject<WebGLImageViewerRef | null>
   }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewerRef = useRef<WebGLImageViewerEngine | null>(null)
+  const viewportRef = useRef<WebGLViewportState | null>(null)
+  const savedViewportRef = useRef<{ id: string, viewport: WebGLViewportState } | null>(null)
   const [tileOutlineEnabled, setTileOutlineEnabled] = useState(false)
 
   const setDebugInfoRef = useRef<(debugInfo: DebugInfo) => void>(() => {})
@@ -112,14 +116,20 @@ export const WebGLImageViewer = ({
     >
   >({
     onZoomChange: onZoomChange || (() => {}),
-    onViewportChange: onViewportChange || (() => {}),
+    onViewportChange: (viewport) => {
+      viewportRef.current = viewport
+      onViewportChange?.(viewport)
+    },
     onImageCopied: onImageCopied || (() => {}),
     onLoadingStateChange: onLoadingStateChange || (() => {}),
   })
 
   callbacksRef.current = {
     onZoomChange: onZoomChange || (() => {}),
-    onViewportChange: onViewportChange || (() => {}),
+    onViewportChange: (viewport) => {
+      viewportRef.current = viewport
+      onViewportChange?.(viewport)
+    },
     onImageCopied: onImageCopied || (() => {}),
     onLoadingStateChange: onLoadingStateChange || (() => {}),
   }
@@ -152,6 +162,7 @@ export const WebGLImageViewer = ({
       return
     }
 
+    let disposed = false
     const webGLImageViewerEngine = new WebGLImageViewerEngine(
       canvasRef.current,
       {
@@ -172,7 +183,10 @@ export const WebGLImageViewer = ({
         alignmentAnimation: mergedAlignmentAnimation,
         velocityAnimation: mergedVelocityAnimation,
         onZoomChange: callbacksRef.current.onZoomChange,
-        onViewportChange: callbacksRef.current.onViewportChange,
+        onViewportChange: (viewport) => {
+          viewportRef.current = viewport
+          callbacksRef.current.onViewportChange(viewport)
+        },
         onImageCopied: callbacksRef.current.onImageCopied,
         onLoadingStateChange: callbacksRef.current.onLoadingStateChange,
         debug: debugEnabled,
@@ -184,7 +198,12 @@ export const WebGLImageViewer = ({
       // 如果提供了尺寸，传递给loadImage进行优化
       const preknownWidth = width && width > 0 ? width : undefined
       const preknownHeight = height && height > 0 ? height : undefined
-      webGLImageViewerEngine.loadImage(src, preknownWidth, preknownHeight).catch(console.error)
+      void webGLImageViewerEngine.loadImage(src, preknownWidth, preknownHeight).then(() => {
+        if (!disposed && savedViewportRef.current?.id === (resourceId ?? src)) {
+          webGLImageViewerEngine.restoreViewport(savedViewportRef.current.viewport)
+          savedViewportRef.current = null
+        }
+      }).catch(console.error)
       viewerRef.current = webGLImageViewerEngine
       setTileOutlineEnabled(webGLImageViewerEngine.isTileOutlineEnabled())
     }
@@ -193,11 +212,16 @@ export const WebGLImageViewer = ({
     }
 
     return () => {
+      disposed = true
+      if (viewportRef.current) {
+        savedViewportRef.current = { id: resourceId ?? src, viewport: viewportRef.current }
+      }
       webGLImageViewerEngine?.destroy()
       viewerRef.current = null
     }
   }, [
     src,
+    resourceId,
     width,
     height,
     initialScale,

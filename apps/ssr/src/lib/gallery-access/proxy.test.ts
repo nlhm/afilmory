@@ -26,6 +26,7 @@ test('proxy public allowlist contains access dependencies but not protected medi
   assert.equal(isPublicGalleryPath('/_next/static/chunks/app.js'), true)
   assert.equal(isPublicGalleryPath('/assets/app.js'), true)
   assert.equal(isPublicGalleryPath('/thumbnails/private.jpg'), false)
+  assert.equal(isPublicGalleryPath('/previews/private.jpg'), false)
   assert.equal(isPublicGalleryPath('/photos/private.jpg'), false)
   assert.equal(isPublicGalleryPath('/_next/image'), false)
   assert.equal(isPublicGalleryPath('/api/media/private'), false)
@@ -42,7 +43,7 @@ test('proxy redirects unauthorized HTML and preserves the relative destination',
 })
 
 test('proxy returns 401 for unauthorized thumbnails and APIs', async () => {
-  for (const path of ['/thumbnails/private.jpg', '/api/media/private?kind=original', '/feed.xml']) {
+  for (const path of ['/thumbnails/private.jpg', '/previews/private.jpg', '/api/media/private?kind=original', '/feed.xml']) {
     const response = handleGalleryAccessProxy(createRequest(path, { accept: 'image/avif,*/*' }), SESSION_SECRET)
     assert.equal(response.status, 401)
     assert.equal(response.headers.get('location'), null)
@@ -77,5 +78,10 @@ test('proxy allows private thumbnail caching after session validation', () => {
   )
 
   assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), THUMBNAIL_CACHE_CONTROL)
+})
+
+test('preview caching is private and requires a gallery session', () => {
+  const response = handleGalleryAccessProxy(createRequest('/previews/photo.jpg?v=preview-digest', { cookie: `${GALLERY_ACCESS_COOKIE_NAME}=${createGallerySessionToken(SESSION_SECRET)}` }), SESSION_SECRET)
   assert.equal(response.headers.get('cache-control'), THUMBNAIL_CACHE_CONTROL)
 })

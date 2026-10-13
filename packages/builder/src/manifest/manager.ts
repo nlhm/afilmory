@@ -22,7 +22,8 @@ export async function loadExistingManifest(options: LoadExistingManifestOptions 
   try {
     const manifestContent = await fs.readFile(manifestPath, 'utf-8')
     manifest = JSON.parse(manifestContent) as AfilmoryManifest
-  } catch {
+  }
+  catch {
     logger.fs.error('🔍 未找到 manifest 文件/解析失败，创建新的 manifest 文件...')
     if (allowWrite) {
       await saveManifest([])
@@ -37,7 +38,7 @@ export async function loadExistingManifest(options: LoadExistingManifestOptions 
 
   if (allowMigrate && manifest.version !== CURRENT_MANIFEST_VERSION) {
     const migrated = await migrateManifestFileIfNeeded(manifest)
-    if (migrated) return migrated
+    manifest = migrated ?? manifest
   }
 
   // 向后兼容：如果现有 manifest 没有 cameras 和 lenses 字段，则添加空数组
@@ -53,13 +54,7 @@ export async function loadExistingManifest(options: LoadExistingManifestOptions 
 
 // 检查照片是否需要更新（基于最后修改时间）
 export function needsUpdate(existingItem: PhotoManifestItem | undefined, s3Object: S3ObjectLike): boolean {
-  if (!existingItem) return true
-  if (!s3Object.LastModified) return true
-
-  const existingModified = new Date(existingItem.lastModified)
-  const s3Modified = s3Object.LastModified
-
-  return s3Modified > existingModified
+  return !existingItem || !s3Object.LastModified || s3Object.LastModified > new Date(existingItem.lastModified)
 }
 
 // 保存 manifest
@@ -96,6 +91,7 @@ export async function handleDeletedPhotos(items: PhotoManifestItem[]): Promise<n
   if (items.length === 0) {
     // Clear all thumbnails
     await fs.rm(path.join(workdir, 'public/thumbnails'), { recursive: true, force: true })
+    await fs.rm(path.join(workdir, 'public/previews'), { recursive: true, force: true })
     logger.main.info('🔍 没有图片，清空缩略图...')
     return 0
   }
@@ -104,12 +100,19 @@ export async function handleDeletedPhotos(items: PhotoManifestItem[]): Promise<n
   const allThumbnails = await fs.readdir(path.join(workdir, 'public/thumbnails'))
 
   // If thumbnails not in manifest, delete it
-  const manifestKeySet = new Set(items.map((item) => item.id))
+  const manifestKeySet = new Set(items.map(item => item.id))
 
   for (const thumbnail of allThumbnails) {
     if (!manifestKeySet.has(basename(thumbnail, '.jpg'))) {
       await fs.unlink(path.join(workdir, 'public/thumbnails', thumbnail))
       deletedCount++
+    }
+  }
+
+  const previewDirectory = path.join(workdir, 'public/previews')
+  for (const preview of await fs.readdir(previewDirectory).catch(() => [])) {
+    if (!manifestKeySet.has(basename(preview, '.jpg'))) {
+      await fs.unlink(path.join(previewDirectory, preview))
     }
   }
 

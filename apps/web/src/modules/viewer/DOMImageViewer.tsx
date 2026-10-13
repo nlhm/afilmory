@@ -53,7 +53,7 @@ export const DOMImageViewer: FC<DOMImageViewerProps> = ({
     if (activeRef?.current) {
       activeRef.current.resetTransform()
     }
-  }, [src, ref, activeRef])
+  }, [ref, activeRef])
 
   // 双击切换 1x/fitToScreenScale，缩放中心为指针位置
   const handleDoubleClick = useCallback(

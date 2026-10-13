@@ -2,7 +2,7 @@ import { clsxm } from '@afilmory/utils'
 import type { WebGLViewportState } from '@afilmory/webgl-viewer'
 import { WebGLImageViewer } from '@afilmory/webgl-viewer'
 import { AnimatePresence, m } from 'motion/react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import { useMediaQuery } from 'usehooks-ts'
@@ -35,6 +35,10 @@ const loadedThumbnailSrcSet = new Set<string>()
 export const ProgressiveImage = ({
   src,
   thumbnailSrc,
+  previewSrc,
+  previewWidth,
+  previewHeight,
+  onResourceReady,
   alt,
   width,
   height,
@@ -93,22 +97,40 @@ export const ProgressiveImage = ({
   const [hasWebGLRegionsViewport, setHasWebGLRegionsViewport] = useState(false)
   const hasWebGLRegionsViewportRef = useRef(false)
 
-  const resolvedSrc = useMemo(() => {
-    if (src.startsWith('/')) {
-      return new URL(src, window.location.origin).toString()
+  const [wantsOriginal, setWantsOriginal] = useState(false)
+  const [isOriginalLoaded, setIsOriginalLoaded] = useState(false)
+  const displaySource = wantsOriginal || !previewSrc ? src : previewSrc
+  const isOriginalSource = displaySource === src
+  const viewerWidth = isOriginalLoaded ? width : previewWidth
+  const viewerHeight = isOriginalLoaded ? height : previewHeight
+  const handleResourceLoaded = useCallback((blob: string | null) => {
+    if (blob) {
+      setIsOriginalLoaded(isOriginalSource)
+      onResourceReady?.()
     }
-    return src
-  }, [src])
+    onBlobSrcChange?.(isOriginalSource ? blob : null)
+  }, [isOriginalSource, onBlobSrcChange, onResourceReady])
+  const handleZoomChange = useCallback((isZoomed: boolean) => {
+    onZoomChange?.(isZoomed)
+    if (isZoomed) {
+      setWantsOriginal(true)
+    }
+  }, [onZoomChange])
+
+  const resolvedSrc = useMemo(() => {
+    if (displaySource.startsWith('/')) {
+      return new URL(displaySource, window.location.origin).toString()
+    }
+    return displaySource
+  }, [displaySource])
 
   // Hooks
   const imageLoaderManagerRef = useImageLoader(
     resolvedSrc,
     isCurrentImage,
-    highResLoaded,
-    error,
     onProgress,
     onError,
-    onBlobSrcChange,
+    handleResourceLoaded,
     loadingIndicatorRef,
     setState.setBlobSrc,
     setState.setHighResLoaded,
@@ -117,14 +139,21 @@ export const ProgressiveImage = ({
   )
 
   const { onTransformed, onDOMTransformed } = useScaleIndicator(
-    onZoomChange,
+    handleZoomChange,
     setState.setCurrentScale,
     setState.setShowScaleIndicator,
   )
 
   const { handleLongPressStart, handleLongPressEnd } = useLivePhotoControls(hasVideo, isLivePhotoPlaying, livePhotoRef)
 
-  const handleWebGLLoadingStateChange = useWebGLLoadingState(loadingIndicatorRef)
+  const setIsHighResImageRendered = setState.setIsHighResImageRendered
+  const updateWebGLLoadingState = useWebGLLoadingState(loadingIndicatorRef)
+  const handleWebGLLoadingStateChange = useCallback((...args: Parameters<typeof updateWebGLLoadingState>) => {
+    updateWebGLLoadingState(...args)
+    if (!args[0]) {
+      setIsHighResImageRendered(true)
+    }
+  }, [setIsHighResImageRendered, updateWebGLLoadingState])
 
   const handleThumbnailLoad = useCallback(() => {
     if (thumbnailSrc) {
@@ -163,6 +192,12 @@ export const ProgressiveImage = ({
   const isHDRSupported = useMediaQuery('(dynamic-range: high)')
   // Only use HDR if the browser supports it and the image is HDR
   const shouldUseHDR = isHDR && isHDRSupported
+  useEffect(() => {
+    if (isActiveImage && shouldUseHDR && blobSrc) {
+      setWantsOriginal(true)
+    }
+  }, [blobSrc, isActiveImage, shouldUseHDR])
+
   const hasRegions = regions.length > 0
   const shouldUseDOMViewer = hasVideo || shouldUseHDR
   const shouldRenderThumbnailPhase = Boolean(thumbnailSrc && (!highResLoaded || !blobSrc || !isActiveImage || error))
@@ -376,7 +411,7 @@ export const ProgressiveImage = ({
       )}
 
       {/* 高分辨率图片 - 只在成功加载且非错误状态时显示 */}
-      {highResLoaded && blobSrc && isActiveImage && !error && (
+      {blobSrc && isActiveImage && !error && (
         <div
           className="absolute inset-0 h-full w-full"
           onContextMenu={(e) => {
@@ -395,8 +430,8 @@ export const ProgressiveImage = ({
               enablePan={enablePan}
               src={blobSrc}
               alt={alt}
-              width={width}
-              height={height}
+              width={viewerWidth}
+              height={viewerHeight}
               highResLoaded={highResLoaded}
               onLoad={() => setState.setIsHighResImageRendered(true)}
             >
@@ -443,9 +478,10 @@ export const ProgressiveImage = ({
               <WebGLImageViewer
                 ref={webglImageViewerRef}
                 src={blobSrc}
+                resourceId={src}
                 className="absolute inset-0 h-full w-full"
-                width={width}
-                height={height}
+                width={viewerWidth}
+                height={viewerHeight}
                 initialScale={1}
                 minScale={minZoom}
                 maxScale={maxZoom}

@@ -1,5 +1,8 @@
+import type { Buffer } from 'node:buffer'
+
 import type { PhotoManifestItem } from '@afilmory/typing'
 
+import { previewExists } from '../image/preview.js'
 import { thumbnailExists } from '../image/thumbnail.js'
 import type { PhotoProcessorOptions } from './processor.js'
 
@@ -9,8 +12,8 @@ export interface CacheableData {
     thumbnailBuffer: Buffer
     blurhash: string
   }
-  exif?: any
-  toneAnalysis?: any
+  exif?: PhotoManifestItem['exif']
+  toneAnalysis?: PhotoManifestItem['toneAnalysis']
 }
 
 /**
@@ -20,9 +23,9 @@ export interface CacheableData {
 export async function shouldProcessPhoto(
   photoId: string,
   existingItem: PhotoManifestItem | undefined,
-  obj: { LastModified?: Date; ETag?: string },
+  obj: { LastModified?: Date, ETag?: string },
   options: PhotoProcessorOptions,
-): Promise<{ shouldProcess: boolean; reason: string }> {
+): Promise<{ shouldProcess: boolean, reason: string }> {
   // 强制模式下总是处理
   if (options.isForceMode) {
     return { shouldProcess: true, reason: '强制模式' }
@@ -38,6 +41,10 @@ export async function shouldProcessPhoto(
     return { shouldProcess: true, reason: '缓存摘要缺失' }
   }
 
+  if (!existingItem.previewDigest || !existingItem.previewWidth || !existingItem.previewHeight || !(await previewExists(photoId))) {
+    return { shouldProcess: true, reason: '浏览预览图缺失' }
+  }
+
   // 检查文件是否更新
   const fileNeedsUpdate = existingItem.lastModified !== obj.LastModified?.toISOString()
 
@@ -48,9 +55,9 @@ export async function shouldProcessPhoto(
     }
   }
 
-  const needsXmpBackfill =
-    (options.xmpKeywordsEnabled && !Array.isArray((existingItem as Partial<PhotoManifestItem>).keywords)) ||
-    (options.xmpRegionsEnabled && !Array.isArray((existingItem as Partial<PhotoManifestItem>).regions))
+  const needsXmpBackfill
+    = (options.xmpKeywordsEnabled && !Array.isArray((existingItem as Partial<PhotoManifestItem>).keywords))
+      || (options.xmpRegionsEnabled && !Array.isArray((existingItem as Partial<PhotoManifestItem>).regions))
 
   if (needsXmpBackfill) {
     return {

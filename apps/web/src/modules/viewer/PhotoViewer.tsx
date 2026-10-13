@@ -323,10 +323,13 @@ export const PhotoViewer = ({
   const handleBlobSrcChange = useCallback(
     (blobSrc: string | null) => {
       setCurrentBlobSrc(blobSrc)
-      setReadyPhotoId(blobSrc ? (currentPhoto?.id ?? null) : null)
     },
-    [currentPhoto?.id],
+    [],
   )
+
+  const handleResourceReady = useCallback(() => {
+    setReadyPhotoId(currentPhoto?.id ?? null)
+  }, [currentPhoto?.id])
 
   usePhotoPreloader({
     photos,
@@ -631,6 +634,10 @@ export const PhotoViewer = ({
                                     isCurrentImage={isCurrentImage}
                                     src={photo.originalUrl}
                                     thumbnailSrc={photo.thumbnailUrl}
+                                    previewSrc={photo.previewUrl}
+                                    previewWidth={photo.previewWidth}
+                                    previewHeight={photo.previewHeight}
+                                    onResourceReady={isCurrentImage ? handleResourceReady : undefined}
                                     alt={photo.title}
                                     width={isCurrentImage ? currentPhoto.width : undefined}
                                     height={isCurrentImage ? currentPhoto.height : undefined}
