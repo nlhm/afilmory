@@ -60,6 +60,7 @@ export const ProgressiveImage = ({
   regions = [],
   regionOrientation,
   regionAccentColor,
+  regionLabelPlacement,
   activeRegionId,
   showAllRegions = false,
   enableRegionHover = true,
@@ -401,6 +402,7 @@ export const ProgressiveImage = ({
               photoHeight={height}
               orientation={regionOrientation}
               accentColor={regionAccentColor}
+              labelPlacement={regionLabelPlacement}
               activeRegionId={activeRegionId}
               showAllBoxes={showAllRegions}
               interactive={enableRegionHover}
@@ -454,6 +456,7 @@ export const ProgressiveImage = ({
                   photoHeight={height}
                   orientation={regionOrientation}
                   accentColor={regionAccentColor}
+                  labelPlacement={regionLabelPlacement}
                   activeRegionId={activeRegionId}
                   showAllBoxes={showAllRegions}
                   interactive={enableRegionHover}
@@ -511,6 +514,7 @@ export const ProgressiveImage = ({
                       photoHeight={height}
                       orientation={regionOrientation}
                       accentColor={regionAccentColor}
+                      labelPlacement={regionLabelPlacement}
                       activeRegionId={activeRegionId}
                       showAllBoxes={showAllRegions}
                       interactive={enableRegionHover}

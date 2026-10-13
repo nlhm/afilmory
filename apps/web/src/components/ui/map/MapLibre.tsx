@@ -1,6 +1,7 @@
 // Styles
 import 'maplibre-gl/dist/maplibre-gl.css'
 
+import { clsxm, focusRing } from '@afilmory/utils'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { MapRef } from 'react-map-gl/maplibre'
 import Map from 'react-map-gl/maplibre'
@@ -240,6 +241,18 @@ export const Maplibre = ({
       >
         {/* Map Controls */}
         <MapControls onGeolocate={onGeolocate} />
+
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={clsxm(
+            'bg-material-thick text-text-secondary hover:text-text absolute right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 rounded-lg border border-accent/20 px-2.5 py-1.5 text-xs backdrop-blur-2xl transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent',
+            focusRing,
+          )}
+        >
+          © OpenStreetMap contributors
+        </a>
 
         {/* Photo Markers */}
         {clusteredMarkers.map((clusterPoint) => {

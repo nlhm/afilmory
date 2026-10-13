@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { PhotoRegion } from '@afilmory/builder'
 import { it } from 'vitest'
 
-import { getRenderablePhotoRegions } from './photo-region-bounds'
+import { getFloatingLabelPosition, getRenderablePhotoRegions } from './photo-region-bounds'
 
 it('getRenderablePhotoRegions excludes metadata-only and zero-area regions from viewer controls', () => {
   const regions: PhotoRegion[] = [
@@ -43,4 +43,36 @@ it('getRenderablePhotoRegions uses the photo dimensions when pixel regions omit 
 
   assert.deepEqual(getRenderablePhotoRegions([region]), [])
   assert.deepEqual(getRenderablePhotoRegions([region], 6000, 4000), [region])
+})
+
+it('getRenderablePhotoRegions restores missing area data from XMP metadata', () => {
+  const region: PhotoRegion = {
+    name: '家鸦',
+    type: 'Face',
+    area: null,
+    appliedToDimensions: { width: 5376, height: 4032, unit: 'pixel' },
+  }
+
+  assert.deepEqual(
+    getRenderablePhotoRegions([region], 5376, 4032, undefined, {
+      RegionList: [
+        {
+          Name: '家鸦',
+          Type: 'Face',
+          Area: { X: 0.45925, Y: 0.51667, W: 0.26389, H: 0.35185 },
+        },
+      ],
+    }),
+    [
+      {
+        ...region,
+        area: { x: 0.45925, y: 0.51667, width: 0.26389, height: 0.35185, unit: 'normalized' },
+      },
+    ],
+  )
+})
+
+it('places floating labels below regions near the overlay top edge', () => {
+  assert.equal(getFloatingLabelPosition(0.02, 1000), 'below')
+  assert.equal(getFloatingLabelPosition(0.1, 1000), 'above')
 })

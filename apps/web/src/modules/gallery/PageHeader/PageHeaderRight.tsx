@@ -22,6 +22,7 @@ import { logoutGalleryAccess } from '~/lib/gallery-access'
 
 import { UserAvatar } from '../../social/comments/UserAvatar'
 import { ViewPanel } from '../panels/ViewPanel'
+import { LanguageSwitcher } from './LanguageSwitcher'
 import { ActionIconButton, resolveSocialUrl } from './utils'
 
 export const PageHeaderRight = () => {
@@ -79,6 +80,8 @@ export const PageHeaderRight = () => {
             <ViewPanel />
           </DesktopViewButton>
         )}
+
+        <LanguageSwitcher />
 
         {isMobile && <MoreActionMenu />}
 

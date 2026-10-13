@@ -139,4 +139,8 @@ export default [
   // Ensure ignores are applied globally before any other configs
   rootIgnores,
   ...hyobanConfig,
+  {
+    files: ['apps/web/src/modules/metadata/formatExifData.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
 ]

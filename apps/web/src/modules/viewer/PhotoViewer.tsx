@@ -96,12 +96,14 @@ export const PhotoViewer = ({
             currentPhoto.width,
             currentPhoto.height,
             currentPhoto.exif?.Orientation,
+            currentPhoto.exif?.RegionInfo,
           )
         : [],
     [currentPhoto],
   )
   const hasRegions = currentRegions.length > 0
   const regionAccentSource = siteConfig.viewer?.regions?.accentSource ?? 'system'
+  const regionLabelPlacement = siteConfig.viewer?.regions?.labelPlacement ?? 'edge'
 
   useEffect(() => {
     setActiveRegionId(null)
@@ -666,9 +668,16 @@ export const PhotoViewer = ({
                                           : { type: 'none' }
                                     }
                                     shouldAutoPlayVideoOnce={isCurrentImage}
-                                    regions={isCurrentImage ? currentRegions : photo.regions}
+                                    regions={getRenderablePhotoRegions(
+                                      photo.regions,
+                                      photo.width,
+                                      photo.height,
+                                      photo.exif?.Orientation,
+                                      photo.exif?.RegionInfo,
+                                    )}
                                     regionOrientation={photo.exif?.Orientation}
                                     regionAccentColor={regionAccentColor}
+                                    regionLabelPlacement={regionLabelPlacement}
                                     activeRegionId={isCurrentImage ? activeRegionId : null}
                                     showAllRegions={isCurrentImage ? showAllRegions : false}
                                     enableRegionHover={isCurrentImage && canHoverRegions}

@@ -52,6 +52,7 @@ export interface ProgressiveImageProps {
   regions?: PhotoRegion[]
   regionOrientation?: number
   regionAccentColor?: string
+  regionLabelPlacement?: 'edge' | 'floating'
   activeRegionId?: string | null
   showAllRegions?: boolean
   enableRegionHover?: boolean

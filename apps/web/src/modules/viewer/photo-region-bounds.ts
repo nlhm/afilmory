@@ -1,4 +1,5 @@
 import type { PhotoRegion } from '@afilmory/builder'
+import type { ExiftoolXmpRegion, ExiftoolXmpRegionInfo } from '@afilmory/typing'
 
 export interface PhotoRegionBounds {
   left: number
@@ -38,12 +39,31 @@ export function getPhotoRegionBounds(
 }
 
 export function getRenderablePhotoRegions(
-  regions: PhotoRegion[],
+  regions: PhotoRegion[] | undefined,
   photoWidth?: number,
   photoHeight?: number,
   orientation?: number,
+  regionInfo?: ExiftoolXmpRegionInfo,
 ) {
-  return regions.filter(region => getPhotoRegionBounds(region, photoWidth, photoHeight, orientation) !== null)
+  return (regions ?? [])
+    .map((region, index) => getRegionWithExifArea(region, regionInfo?.RegionList?.[index]))
+    .filter(region => getPhotoRegionBounds(region, photoWidth, photoHeight, orientation) !== null)
+}
+
+function getRegionWithExifArea(region: PhotoRegion, exifRegion?: ExiftoolXmpRegion): PhotoRegion {
+  if (region.area || !exifRegion?.Area) {
+    return region
+  }
+
+  const { X: x, Y: y, W: width, H: height, Unit: unit } = exifRegion.Area
+  if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
+    return region
+  }
+
+  return {
+    ...region,
+    area: { x, y, width, height, unit: unit ?? 'normalized' },
+  }
 }
 
 function getPixelBounds(
@@ -121,4 +141,8 @@ function normalizeBounds(bounds: PhotoRegionBounds): PhotoRegionBounds | null {
     width,
     height,
   }
+}
+
+export function getFloatingLabelPosition(regionTop: number, overlayHeight: number): 'above' | 'below' {
+  return regionTop * overlayHeight < 34 ? 'below' : 'above'
 }

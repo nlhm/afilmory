@@ -82,3 +82,8 @@ docs/app-store-assets/raw/09-gallery-masonry.png
 docs/app-store-assets/raw/10-photo-info-exif.png
 docs/app-store-assets/raw/11-photo-reactions.png
 scripts/generate-app-store-composites.mjs
+
+# build/report artifacts
+.asc/
+tmp-asc/
+acceptance-report/
