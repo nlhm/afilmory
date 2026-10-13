@@ -13,3 +13,7 @@ The viewer loads the preview first and requests the original when the user zooms
 Shared image loads have independent consumer subscriptions. Cancelling a preload releases only its subscription; an active viewer can keep the download alive. The underlying request is cancelled when its last consumer leaves. Persistent cache hits return immediately and update LRU metadata asynchronously.
 
 Validation should cover slow original responses, adjacent-photo navigation, zoom promotion without a viewport jump, failed originals with a usable preview, portrait orientation, digest invalidation, unauthorized preview requests, and original downloads. Cache and scheduling regression tests live under `apps/web/src/lib`; image encoding tests live under `packages/builder/src/image`; access tests live under `apps/ssr/src/lib/gallery-access`.
+
+The viewer upgrade incorporates upstream commit `215576e7` (WebGPU rendering and JPEG gain-map HDR). WebGPU initialization or device loss falls back to WebGL. A stable photo resource identifier allows the viewport to survive preview-to-original promotion as well as renderer fallback. HEIC acceleration, the later double-tap/Live Photo fixes, and SSR thumbnail fallback are separate pending upstream steps.
+
+The production parser suite includes a generated paired-JPEG test. Its optional real Xiaomi HDR fixture test runs only when `photos/IMG_20251111_002156.jpg` is available. Browser/device testing and a full deployment build using the actual gallery manifest remain necessary before release.

@@ -188,15 +188,7 @@ export const useScaleIndicator = (
     [handleScaleChange],
   )
 
-  // DOM Image Viewer 的缩放变化处理
-  const onDOMTransformed = useCallback(
-    (isZoomed: boolean, scale: number) => {
-      handleScaleChange(scale, isZoomed)
-    },
-    [handleScaleChange],
-  )
-
-  return { onTransformed, onDOMTransformed }
+  return { onTransformed }
 }
 
 export const useLivePhotoControls = (
@@ -235,10 +227,10 @@ export const useLivePhotoControls = (
   return { handleLongPressStart, handleLongPressEnd }
 }
 
-export const useWebGLLoadingState = (loadingIndicatorRef: React.RefObject<LoadingIndicatorRef | null>) => {
+export const useImageViewerLoadingState = (loadingIndicatorRef: React.RefObject<LoadingIndicatorRef | null>) => {
   const { t } = useTranslation()
 
-  const handleWebGLLoadingStateChange = useCallback(
+  const handleImageLoadingStateChange = useCallback(
     (isLoading: boolean, state?: LoadingState, quality?: 'high' | 'medium' | 'low' | 'unknown') => {
       let message = ''
 
@@ -259,10 +251,10 @@ export const useWebGLLoadingState = (loadingIndicatorRef: React.RefObject<Loadin
     [t, loadingIndicatorRef],
   )
 
-  return handleWebGLLoadingStateChange
+  return handleImageLoadingStateChange
 }
 
-export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunction<'app', undefined>) => [
+export const createContextMenuItems = (blobSrc: string, originalSrc: string, alt: string, t: TFunction<'app', undefined>) => [
   new MenuItemText({
     label: t('photo.copy.image'),
     click: async () => {
@@ -336,11 +328,23 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
   MenuItemSeparator.default,
   new MenuItemText({
     label: t('photo.download'),
-    click: () => {
-      const a = document.createElement('a')
-      a.href = blobSrc
-      a.download = alt
-      a.click()
+    click: async () => {
+      try {
+        const response = await fetch(originalSrc)
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        const url = URL.createObjectURL(await response.blob())
+        const a = document.createElement('a')
+        a.href = url
+        a.download = alt
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+      catch (error) {
+        console.error('Failed to download original image:', error)
+        toast.error(t('photo.error.loading'))
+      }
     },
   }),
 ]

@@ -8,11 +8,6 @@ import { AppSkeleton } from './components/ui/app-skeleton'
 import { purgeLegacyPhotoCaches } from './lib/gallery-access'
 import { router } from './router'
 
-if (import.meta.env.DEV) {
-  const { start } = await import('react-scan')
-  start()
-}
-
 if ('caches' in globalThis) {
   void purgeLegacyPhotoCaches().catch((error) => {
     console.warn('Failed to clear legacy photo caches:', error)

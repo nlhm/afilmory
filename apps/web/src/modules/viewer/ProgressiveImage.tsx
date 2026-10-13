@@ -1,34 +1,31 @@
 import { clsxm } from '@afilmory/utils'
-import type { WebGLViewportState } from '@afilmory/webgl-viewer'
-import { WebGLImageViewer } from '@afilmory/webgl-viewer'
+import type { ImageViewportState } from '@afilmory/webgl-viewer'
+import { ImageViewer } from '@afilmory/webgl-viewer'
 import { AnimatePresence, m } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import { useMediaQuery } from 'usehooks-ts'
 
 import { useShowContextMenu } from '~/atoms/context-menu'
 import { SlidingNumber } from '~/components/ui/number/SlidingNumber'
 import { isMobileDevice } from '~/lib/device-viewport'
-import { canUseWebGL } from '~/lib/feature'
 import { HDRBadge } from '~/modules/media/HDRBadge'
 import { LivePhotoBadge } from '~/modules/media/LivePhotoBadge'
 import type { LivePhotoVideoHandle } from '~/modules/media/LivePhotoVideo'
 import { LivePhotoVideo } from '~/modules/media/LivePhotoVideo'
 
 import { ContainedImageFrame } from './ContainedImageFrame'
-import { DOMImageViewer } from './DOMImageViewer'
 import { getProgressiveImageVisualReady, isThumbnailElementVisuallyReady } from './entry-animation-state'
 import {
   createContextMenuItems,
   useImageLoader,
+  useImageViewerLoadingState,
   useLivePhotoControls,
   useProgressiveImageState,
   useScaleIndicator,
-  useWebGLLoadingState,
 } from './hooks'
 import { PhotoRegionsOverlay } from './PhotoRegionsOverlay'
-import type { ProgressiveImageProps, WebGLImageViewerRef } from './types'
+import type { ProgressiveImageProps } from './types'
 
 const loadedThumbnailSrcSet = new Set<string>()
 
@@ -39,6 +36,7 @@ export const ProgressiveImage = ({
   previewWidth,
   previewHeight,
   onResourceReady,
+  isHDR = false,
   alt,
   width,
   height,
@@ -65,7 +63,6 @@ export const ProgressiveImage = ({
   showAllRegions = false,
   enableRegionHover = true,
   onActiveRegionChange,
-  isHDR = false,
   loadingIndicatorRef,
 }: ProgressiveImageProps) => {
   const { t } = useTranslation()
@@ -90,13 +87,11 @@ export const ProgressiveImage = ({
 
   // Refs
   const thumbnailRef = useRef<HTMLImageElement>(null)
-  const webglImageViewerRef = useRef<WebGLImageViewerRef | null>(null)
-  const webglViewerHostRef = useRef<HTMLDivElement>(null)
-  const webglRegionsFrameRef = useRef<HTMLDivElement>(null)
-  const domImageViewerRef = useRef<ReactZoomPanPinchRef>(null)
+  const imageViewerHostRef = useRef<HTMLDivElement>(null)
+  const viewportFrameRef = useRef<HTMLDivElement>(null)
   const livePhotoRef = useRef<LivePhotoVideoHandle | null>(null)
-  const [hasWebGLRegionsViewport, setHasWebGLRegionsViewport] = useState(false)
-  const hasWebGLRegionsViewportRef = useRef(false)
+  const [hasOverlayViewport, setHasOverlayViewport] = useState(false)
+  const hasOverlayViewportRef = useRef(false)
 
   const [wantsOriginal, setWantsOriginal] = useState(false)
   const [isOriginalLoaded, setIsOriginalLoaded] = useState(false)
@@ -117,6 +112,12 @@ export const ProgressiveImage = ({
       setWantsOriginal(true)
     }
   }, [onZoomChange])
+  const isHDRSupported = useMediaQuery('(dynamic-range: high)')
+  useEffect(() => {
+    if (isActiveImage && isHDR && isHDRSupported && blobSrc) {
+      setWantsOriginal(true)
+    }
+  }, [blobSrc, isActiveImage, isHDR, isHDRSupported])
 
   const resolvedSrc = useMemo(() => {
     if (displaySource.startsWith('/')) {
@@ -139,22 +140,11 @@ export const ProgressiveImage = ({
     setState.setIsHighResImageRendered,
   )
 
-  const { onTransformed, onDOMTransformed } = useScaleIndicator(
-    handleZoomChange,
-    setState.setCurrentScale,
-    setState.setShowScaleIndicator,
-  )
+  const { onTransformed } = useScaleIndicator(handleZoomChange, setState.setCurrentScale, setState.setShowScaleIndicator)
 
   const { handleLongPressStart, handleLongPressEnd } = useLivePhotoControls(hasVideo, isLivePhotoPlaying, livePhotoRef)
 
-  const setIsHighResImageRendered = setState.setIsHighResImageRendered
-  const updateWebGLLoadingState = useWebGLLoadingState(loadingIndicatorRef)
-  const handleWebGLLoadingStateChange = useCallback((...args: Parameters<typeof updateWebGLLoadingState>) => {
-    updateWebGLLoadingState(...args)
-    if (!args[0]) {
-      setIsHighResImageRendered(true)
-    }
-  }, [setIsHighResImageRendered, updateWebGLLoadingState])
+  const handleImageLoadingStateChange = useImageViewerLoadingState(loadingIndicatorRef)
 
   const handleThumbnailLoad = useCallback(() => {
     if (thumbnailSrc) {
@@ -190,20 +180,11 @@ export const ProgressiveImage = ({
 
   const showContextMenu = useShowContextMenu()
 
-  const isHDRSupported = useMediaQuery('(dynamic-range: high)')
-  // Only use HDR if the browser supports it and the image is HDR
-  const shouldUseHDR = isHDR && isHDRSupported
-  useEffect(() => {
-    if (isActiveImage && shouldUseHDR && blobSrc) {
-      setWantsOriginal(true)
-    }
-  }, [blobSrc, isActiveImage, shouldUseHDR])
-
+  const [renderedHDR, setRenderedHDR] = useState(false)
   const hasRegions = regions.length > 0
-  const shouldUseDOMViewer = hasVideo || shouldUseHDR
   const shouldRenderThumbnailPhase = Boolean(thumbnailSrc && (!highResLoaded || !blobSrc || !isActiveImage || error))
 
-  const webglPinchConfig = useMemo(
+  const imagePinchConfig = useMemo(
     () => ({
       step: 0.5,
       disabled: !enableZoom,
@@ -211,7 +192,7 @@ export const ProgressiveImage = ({
     [enableZoom],
   )
 
-  const webglDoubleClickConfig = useMemo(
+  const imageDoubleClickConfig = useMemo(
     () => ({
       step: 2,
       disabled: !enableZoom,
@@ -221,7 +202,7 @@ export const ProgressiveImage = ({
     [enableZoom],
   )
 
-  const webglPanningConfig = useMemo(
+  const imagePanningConfig = useMemo(
     () => ({
       disabled: !enablePan,
     }),
@@ -238,8 +219,8 @@ export const ProgressiveImage = ({
     onVisualReadyChange?.(isVisualReady)
   }, [isVisualReady, onVisualReadyChange])
 
-  const handleWebGLViewportChange = useCallback((viewport: WebGLViewportState) => {
-    const overlayFrame = webglRegionsFrameRef.current
+  const handleViewportChange = useCallback((viewport: ImageViewportState) => {
+    const overlayFrame = viewportFrameRef.current
     if (!overlayFrame) {
       return
     }
@@ -253,25 +234,25 @@ export const ProgressiveImage = ({
     overlayFrame.style.height = `${renderedHeight}px`
     overlayFrame.style.transform = `translate3d(${left}px, ${top}px, 0)`
 
-    if (!hasWebGLRegionsViewportRef.current) {
-      hasWebGLRegionsViewportRef.current = true
-      setHasWebGLRegionsViewport(true)
+    if (!hasOverlayViewportRef.current) {
+      hasOverlayViewportRef.current = true
+      setHasOverlayViewport(true)
     }
   }, [])
 
-  const getWebGLCanvas = useCallback(() => {
-    const canvas = webglViewerHostRef.current?.querySelector('canvas')
+  const getViewerCanvas = useCallback(() => {
+    const canvas = imageViewerHostRef.current?.querySelector('canvas')
     return canvas instanceof HTMLCanvasElement ? canvas : null
   }, [])
 
-  const shouldForwardWebGLEvent = useCallback((target: EventTarget | null, canvas: HTMLCanvasElement) => {
+  const shouldForwardViewerEvent = useCallback((target: EventTarget | null, canvas: HTMLCanvasElement) => {
     return target instanceof Node && !canvas.contains(target)
   }, [])
 
   const dispatchMouseEventToCanvas = useCallback(
     (type: 'mousedown' | 'mousemove' | 'mouseup' | 'dblclick', event: React.MouseEvent<HTMLDivElement>) => {
-      const canvas = getWebGLCanvas()
-      if (!canvas || !shouldForwardWebGLEvent(event.target, canvas)) {
+      const canvas = getViewerCanvas()
+      if (!canvas || !shouldForwardViewerEvent(event.target, canvas)) {
         return
       }
 
@@ -293,13 +274,13 @@ export const ProgressiveImage = ({
         }),
       )
     },
-    [getWebGLCanvas, shouldForwardWebGLEvent],
+    [getViewerCanvas, shouldForwardViewerEvent],
   )
 
   const dispatchTouchEventToCanvas = useCallback(
     (type: 'touchstart' | 'touchmove' | 'touchend', event: React.TouchEvent<HTMLDivElement>) => {
-      const canvas = getWebGLCanvas()
-      if (!canvas || !shouldForwardWebGLEvent(event.target, canvas) || typeof TouchEvent === 'undefined') {
+      const canvas = getViewerCanvas()
+      if (!canvas || !shouldForwardViewerEvent(event.target, canvas) || typeof TouchEvent === 'undefined') {
         return
       }
 
@@ -320,13 +301,13 @@ export const ProgressiveImage = ({
         }),
       )
     },
-    [getWebGLCanvas, shouldForwardWebGLEvent],
+    [getViewerCanvas, shouldForwardViewerEvent],
   )
 
-  const handleWebGLRegionWheel = useCallback(
+  const handleOverlayWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
-      const canvas = webglViewerHostRef.current?.querySelector('canvas')
-      if (!(canvas instanceof HTMLCanvasElement) || !shouldForwardWebGLEvent(event.target, canvas)) {
+      const canvas = imageViewerHostRef.current?.querySelector('canvas')
+      if (!(canvas instanceof HTMLCanvasElement) || !shouldForwardViewerEvent(event.target, canvas)) {
         return
       }
 
@@ -350,14 +331,15 @@ export const ProgressiveImage = ({
         }),
       )
     },
-    [shouldForwardWebGLEvent],
+    [shouldForwardViewerEvent],
   )
 
   useLayoutEffect(() => {
-    hasWebGLRegionsViewportRef.current = false
-    setHasWebGLRegionsViewport(false)
+    setRenderedHDR(false)
+    hasOverlayViewportRef.current = false
+    setHasOverlayViewport(false)
 
-    const overlayFrame = webglRegionsFrameRef.current
+    const overlayFrame = viewportFrameRef.current
     if (!overlayFrame) {
       return
     }
@@ -417,97 +399,70 @@ export const ProgressiveImage = ({
         <div
           className="absolute inset-0 h-full w-full"
           onContextMenu={(e) => {
-            const items = createContextMenuItems(blobSrc, alt, t)
+            const items = createContextMenuItems(blobSrc, src, alt, t)
             showContextMenu(items, e)
           }}
         >
-          {/* LivePhoto/Motion Photo 或 HDR 模式使用 DOMImageViewer */}
-          {shouldUseDOMViewer ? (
-            <DOMImageViewer
-              ref={domImageViewerRef}
-              onZoomChange={onDOMTransformed}
-              minZoom={minZoom}
-              maxZoom={maxZoom}
-              enableZoom={enableZoom}
-              enablePan={enablePan}
+          <div
+            ref={imageViewerHostRef}
+            className="absolute inset-0 h-full w-full"
+            onWheelCapture={handleOverlayWheel}
+            onMouseDownCapture={event => dispatchMouseEventToCanvas('mousedown', event)}
+            onMouseMoveCapture={event => dispatchMouseEventToCanvas('mousemove', event)}
+            onMouseUpCapture={event => dispatchMouseEventToCanvas('mouseup', event)}
+            onDoubleClickCapture={event => dispatchMouseEventToCanvas('dblclick', event)}
+            onTouchStartCapture={event => dispatchTouchEventToCanvas('touchstart', event)}
+            onTouchMoveCapture={event => dispatchTouchEventToCanvas('touchmove', event)}
+            onTouchEndCapture={event => dispatchTouchEventToCanvas('touchend', event)}
+          >
+            <ImageViewer
               src={blobSrc}
+              resourceId={src}
               alt={alt}
+              onLoad={() => setState.setIsHighResImageRendered(true)}
+              onHDRChange={setRenderedHDR}
+              onError={() => {
+                setState.setError(true)
+                onError?.()
+              }}
+              className="absolute inset-0 h-full w-full"
               width={viewerWidth}
               height={viewerHeight}
-              highResLoaded={highResLoaded}
-              onLoad={() => setState.setIsHighResImageRendered(true)}
-            >
-              {/* LivePhoto/Motion Photo 视频组件作为 children，跟随图片的变换 */}
-              {hasVideo && videoSource && imageLoaderManagerRef.current && (
-                <LivePhotoVideo
-                  ref={livePhotoRef}
-                  videoSource={videoSource}
-                  imageLoaderManager={imageLoaderManagerRef.current}
-                  loadingIndicatorRef={loadingIndicatorRef}
-                  isCurrentImage={isCurrentImage}
-                  onPlayingChange={setState.setIsLivePhotoPlaying}
-                  shouldAutoPlayOnce={shouldAutoPlayVideoOnce}
-                />
-              )}
-              {hasRegions && (
-                <PhotoRegionsOverlay
-                  regions={regions}
-                  photoWidth={width}
-                  photoHeight={height}
-                  orientation={regionOrientation}
-                  accentColor={regionAccentColor}
-                  labelPlacement={regionLabelPlacement}
-                  activeRegionId={activeRegionId}
-                  showAllBoxes={showAllRegions}
-                  interactive={enableRegionHover}
-                  onActiveRegionChange={onActiveRegionChange}
-                />
-              )}
-            </DOMImageViewer>
-          ) : (
-            /* 非 LivePhoto 模式使用 WebGLImageViewer */
-            <div
-              ref={webglViewerHostRef}
-              className="absolute inset-0 h-full w-full"
-              onWheelCapture={handleWebGLRegionWheel}
-              onMouseDownCapture={event => dispatchMouseEventToCanvas('mousedown', event)}
-              onMouseMoveCapture={event => dispatchMouseEventToCanvas('mousemove', event)}
-              onMouseUpCapture={event => dispatchMouseEventToCanvas('mouseup', event)}
-              onDoubleClickCapture={event => dispatchMouseEventToCanvas('dblclick', event)}
-              onTouchStartCapture={event => dispatchTouchEventToCanvas('touchstart', event)}
-              onTouchMoveCapture={event => dispatchTouchEventToCanvas('touchmove', event)}
-              onTouchEndCapture={event => dispatchTouchEventToCanvas('touchend', event)}
-            >
-              <WebGLImageViewer
-                ref={webglImageViewerRef}
-                src={blobSrc}
-                resourceId={src}
-                className="absolute inset-0 h-full w-full"
-                width={viewerWidth}
-                height={viewerHeight}
-                initialScale={1}
-                minScale={minZoom}
-                maxScale={maxZoom}
-                pinch={webglPinchConfig}
-                doubleClick={webglDoubleClickConfig}
-                panning={webglPanningConfig}
-                limitToBounds={true}
-                centerOnInit={true}
-                smooth={true}
-                onZoomChange={onTransformed}
-                onViewportChange={handleWebGLViewportChange}
-                onLoadingStateChange={handleWebGLLoadingStateChange}
-                debug={import.meta.env.DEV && !isMobileDevice}
-              />
-              {hasRegions && (
-                <div className="pointer-events-none absolute inset-0 z-20">
-                  <div
-                    ref={webglRegionsFrameRef}
-                    className={clsxm(
-                      'absolute left-0 top-0 overflow-visible transition-opacity duration-200',
-                      hasWebGLRegionsViewport ? 'opacity-100' : 'opacity-0',
-                    )}
-                  >
+              initialScale={1}
+              minScale={minZoom}
+              maxScale={maxZoom}
+              pinch={imagePinchConfig}
+              doubleClick={imageDoubleClickConfig}
+              panning={imagePanningConfig}
+              limitToBounds={true}
+              centerOnInit={true}
+              smooth={true}
+              onZoomChange={onTransformed}
+              onViewportChange={handleViewportChange}
+              onLoadingStateChange={handleImageLoadingStateChange}
+              debug={import.meta.env.DEV && !isMobileDevice}
+            />
+            {(hasRegions || hasVideo) && (
+              <div className="pointer-events-none absolute inset-0 z-20">
+                <div
+                  ref={viewportFrameRef}
+                  className={clsxm(
+                    'absolute left-0 top-0 overflow-visible transition-opacity duration-200',
+                    hasOverlayViewport ? 'opacity-100' : 'opacity-0',
+                  )}
+                >
+                  {hasVideo && videoSource && imageLoaderManagerRef.current && hasOverlayViewport && (
+                    <LivePhotoVideo
+                      ref={livePhotoRef}
+                      videoSource={videoSource}
+                      imageLoaderManager={imageLoaderManagerRef.current}
+                      loadingIndicatorRef={loadingIndicatorRef}
+                      isCurrentImage={isCurrentImage}
+                      onPlayingChange={setState.setIsLivePhotoPlaying}
+                      shouldAutoPlayOnce={shouldAutoPlayVideoOnce}
+                    />
+                  )}
+                  {hasRegions && (
                     <PhotoRegionsOverlay
                       regions={regions}
                       photoWidth={width}
@@ -520,11 +475,11 @@ export const ProgressiveImage = ({
                       interactive={enableRegionHover}
                       onActiveRegionChange={onActiveRegionChange}
                     />
-                  </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -536,15 +491,7 @@ export const ProgressiveImage = ({
         />
       )}
 
-      {shouldUseHDR && highResLoaded && blobSrc && isActiveImage && !error && <HDRBadge />}
-
-      {/* 备用图片（当 WebGL 不可用时） - 只在非错误状态时显示 */}
-      {!canUseWebGL && highResLoaded && blobSrc && isActiveImage && !error && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/20">
-          <i className="i-mingcute-warning-line mb-2 text-4xl" />
-          <span className="text-center text-sm text-white">{t('photo.webgl.unavailable')}</span>
-        </div>
-      )}
+      {renderedHDR && highResLoaded && blobSrc && isActiveImage && !error && <HDRBadge />}
 
       {/* 操作提示 */}
       {!hasVideo && (
