@@ -1,3 +1,4 @@
+import type { AppleGainMapSource } from '@afilmory/webgl-viewer'
 import { fileTypeFromBlob } from 'file-type'
 
 import { i18nAtom } from '~/i18n'
@@ -30,6 +31,7 @@ export interface LoadingCallbacks {
 }
 
 export interface ImageLoadResult {
+  gainMap?: AppleGainMapSource
   blobSrc: string
   convertedUrl?: string
 }
@@ -369,6 +371,7 @@ export class ImageLoaderManager {
         return {
           blobSrc: conversionResult.url,
           convertedUrl: conversionResult.url,
+          gainMap: conversionResult.gainMap,
         }
       }
       else {

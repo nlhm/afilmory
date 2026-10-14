@@ -1,3 +1,4 @@
+import type { AppleGainMapSource } from '@afilmory/webgl-viewer'
 import { LoadingState } from '@afilmory/webgl-viewer'
 import type { TFunction } from 'i18next'
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
@@ -16,6 +17,7 @@ import { SHOW_SCALE_INDICATOR_DURATION } from './types'
 export const useProgressiveImageState = (): [
   ProgressiveImageState,
   {
+    setGainMap: (gainMap: AppleGainMapSource | undefined) => void
     setBlobSrc: (src: string | null) => void
     setHighResLoaded: (loaded: boolean) => void
     setError: (error: boolean) => void
@@ -26,6 +28,7 @@ export const useProgressiveImageState = (): [
     setIsLivePhotoPlaying: (playing: boolean) => void
   },
 ] => {
+  const [gainMap, setGainMap] = useState<AppleGainMapSource>()
   const [blobSrc, setBlobSrc] = useState<string | null>(null)
   const [highResLoaded, setHighResLoaded] = useState(false)
   const [error, setError] = useState(false)
@@ -37,6 +40,7 @@ export const useProgressiveImageState = (): [
 
   return [
     {
+      gainMap,
       blobSrc,
       highResLoaded,
       error,
@@ -47,6 +51,7 @@ export const useProgressiveImageState = (): [
       isLivePhotoPlaying,
     },
     {
+      setGainMap,
       setBlobSrc,
       setHighResLoaded,
       setError,
@@ -70,6 +75,7 @@ export const useImageLoader = (
   setHighResLoaded?: (loaded: boolean) => void,
   setError?: (error: boolean) => void,
   setIsHighResImageRendered?: (rendered: boolean) => void,
+  setGainMap?: (gainMap: AppleGainMapSource | undefined) => void,
 ) => {
   const { t } = useTranslation()
   const imageLoaderManagerRef = useRef<ImageLoaderManager | null>(null)
@@ -88,6 +94,7 @@ export const useImageLoader = (
 
     setError?.(false)
     if (!loadedSrcRef.current) {
+      setGainMap?.(undefined)
       setHighResLoaded?.(false)
       setBlobSrc?.(null)
       setIsHighResImageRendered?.(false)
@@ -106,6 +113,7 @@ export const useImageLoader = (
 
         if (!isDisposed) {
           loadedSrcRef.current = src
+          setGainMap?.(result.gainMap)
           setBlobSrc?.(result.blobSrc)
           onBlobSrcChange?.(result.blobSrc)
           setHighResLoaded?.(true)
@@ -142,6 +150,7 @@ export const useImageLoader = (
     loadingIndicatorRef,
     t,
     setBlobSrc,
+    setGainMap,
     setHighResLoaded,
     setError,
     setIsHighResImageRendered,

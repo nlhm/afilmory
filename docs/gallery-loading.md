@@ -1,6 +1,6 @@
 # Private gallery image loading
 
-Updated: 2026-10-13.
+Updated: 2026-10-14.
 
 The gallery uses three image sizes: a 600px thumbnail for the grid, a JPEG preview with a maximum edge of 2048px for browsing, and the original for detailed zoom, HDR output, and downloads.
 
@@ -14,6 +14,10 @@ Shared image loads have independent consumer subscriptions. Cancelling a preload
 
 Validation should cover slow original responses, adjacent-photo navigation, zoom promotion without a viewport jump, failed originals with a usable preview, portrait orientation, digest invalidation, unauthorized preview requests, and original downloads. Cache and scheduling regression tests live under `apps/web/src/lib`; image encoding tests live under `packages/builder/src/image`; access tests live under `apps/ssr/src/lib/gallery-access`.
 
-The viewer upgrade incorporates upstream commit `215576e7` (WebGPU rendering and JPEG gain-map HDR). WebGPU initialization or device loss falls back to WebGL. A stable photo resource identifier allows the viewport to survive preview-to-original promotion as well as renderer fallback. HEIC acceleration, the later double-tap/Live Photo fixes, and SSR thumbnail fallback are separate pending upstream steps.
+The viewer upgrade incorporates upstream commit `215576e7` (WebGPU rendering and JPEG gain-map HDR). WebGPU initialization or device loss falls back to WebGL. A stable photo resource identifier allows the viewport to survive preview-to-original promotion as well as renderer fallback. The later double-tap/Live Photo fixes and SSR thumbnail fallback are separate pending upstream steps.
+
+HEIC conversion incorporates upstream commit `daf774bf`. On browsers requiring conversion, supported HEIF grids use WebCodecs with a preference for hardware decoding. Unsupported layouts, browser APIs, codecs, or decode failures fall back to libheif. A supported Apple HDR auxiliary is decoded separately and passed to the WebGPU renderer; an unavailable auxiliary leaves the SDR base usable. Converted-image cache entries retain the base and gain-map URLs together and release both when removed. Native Safari HEIC handling remains in use where conversion is unnecessary.
+
+HEIF parser tests cover tile ordering, rotation, edge crop, and malformed or unsupported inputs. Mocked browser API tests cover decoder failure cleanup and optional HDR auxiliaries. These verify control flow, not device decoding speed or HDR appearance; real HEIC photos and capable devices are needed to assess those.
 
 The production parser suite includes a generated paired-JPEG test. Its optional real Xiaomi HDR fixture test runs only when `photos/IMG_20251111_002156.jpg` is available. Browser/device testing and a full deployment build using the actual gallery manifest remain necessary before release.
