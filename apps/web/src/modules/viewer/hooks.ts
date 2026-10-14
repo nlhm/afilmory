@@ -207,19 +207,37 @@ export const useLivePhotoControls = (
 ) => {
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handleLongPressStart = useCallback(() => {
-    if (!isMobileDevice) {
-      return undefined
-    }
-    const playVideo = () => livePhotoRef.current?.play()
-    if (!isLivePhoto || !livePhotoRef.current?.getIsVideoLoaded() || isLivePhotoPlaying) {
-      return
-    }
+  useEffect(() => () => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current)
     }
-    longPressTimerRef.current = setTimeout(playVideo, 200)
-  }, [isLivePhoto, isLivePhotoPlaying, livePhotoRef])
+  }, [])
+
+  const handleLongPressStart = useCallback(
+    (event?: React.SyntheticEvent) => {
+      if (!isMobileDevice) {
+        return
+      }
+      if (((event as React.TouchEvent | undefined)?.touches?.length ?? 0) > 1) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current)
+        }
+        if (isLivePhotoPlaying) {
+          livePhotoRef.current?.stop()
+        }
+        return
+      }
+      const playVideo = () => livePhotoRef.current?.play()
+      if (!isLivePhoto || !livePhotoRef.current?.getIsVideoLoaded() || isLivePhotoPlaying) {
+        return
+      }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
+      longPressTimerRef.current = setTimeout(playVideo, 200)
+    },
+    [isLivePhoto, isLivePhotoPlaying, livePhotoRef],
+  )
 
   const handleLongPressEnd = useCallback(() => {
     if (!isMobileDevice) {

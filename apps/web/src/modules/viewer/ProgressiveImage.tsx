@@ -358,6 +358,7 @@ export const ProgressiveImage = ({
       onMouseLeave={handleLongPressEnd}
       onTouchStart={handleLongPressStart}
       onTouchEnd={handleLongPressEnd}
+      onTouchCancel={handleLongPressEnd}
     >
       {/* 缩略图 - 在高分辨率图片未加载或加载失败时显示 */}
       {thumbnailSrc && (!isHighResImageRendered || error) && (
