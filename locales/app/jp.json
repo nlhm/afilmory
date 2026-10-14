@@ -364,6 +364,7 @@
   "photo.copying": "画像をコピーしています...",
   "photo.download": "画像をダウンロード",
   "photo.error.loading": "画像の読み込みに失敗しました",
+  "photo.error.original": "元の画像を読み込めませんでした。プレビューは引き続き表示できます。",
   "photo.live.badge": "Live",
   "photo.live.converting.detail": "{{method}}を使用してビデオ形式を変換しています...",
   "photo.live.converting.video": "Live Photo のビデオを変換中",

@@ -130,7 +130,7 @@ export const useImageLoader = (
         loadingIndicatorRef?.current?.updateLoadingState({
           isVisible: true,
           isError: true,
-          errorMessage: t('photo.error.loading'),
+          errorMessage: t(loadedSrcRef.current ? 'photo.error.original' : 'photo.error.loading'),
         })
       }
     }

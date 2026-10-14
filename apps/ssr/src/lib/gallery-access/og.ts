@@ -27,7 +27,7 @@ export const handleGalleryOgRequest = async (request: Request, photoId: string, 
     }
     return new Response(null, {
       status: 302,
-      headers: { ...privateHeaders, Location: url.href },
+      headers: { ...privateHeaders, Location: `${url.pathname}${url.search}` },
     })
   }
 

@@ -44,7 +44,7 @@ test('unreachable or failing OG backends fall back to the protected versioned th
   for (const fetcher of [unavailable, async () => new Response('failed', { status: 503 })]) {
     const response = await handleGalleryOgRequest(request(), 'photo', { ...dependencies, fetch: fetcher })
     assert.equal(response.status, 302)
-    assert.equal(response.headers.get('location'), 'https://gallery.test/thumbnails/photo.jpg?v=digest')
+    assert.equal(response.headers.get('location'), '/thumbnails/photo.jpg?v=digest')
     assert.equal(response.headers.get('cache-control'), 'private, no-store')
     assert.match(response.headers.get('x-robots-tag') || '', /noindex/)
   }

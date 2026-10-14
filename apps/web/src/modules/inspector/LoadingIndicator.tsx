@@ -90,7 +90,6 @@ export const LoadingIndicator = ({ ref }: { ref?: React.Ref<LoadingIndicatorRef 
               <p className="text-xs font-medium text-red-400">
                 {loadingState.errorMessage || t('photo.error.loading')}
               </p>
-              <p className="text-xs text-white/70">{t('loading.default')}</p>
             </>
           ) : loadingState.isConverting ? (
             // 视频转换状态
@@ -133,12 +132,18 @@ export const LoadingIndicator = ({ ref }: { ref?: React.Ref<LoadingIndicatorRef 
                 <p className="text-xs font-medium text-white">
                   {loadingState.isHeicFormat ? t('loading.heic.main') : t('loading.default')}
                 </p>
-                <span className="text-xs text-white/60 tabular-nums">{Math.round(loadingState.loadingProgress)}%</span>
+                <span className="text-xs text-white/60 tabular-nums">
+                  {Math.round(loadingState.loadingProgress)}
+                  %
+                </span>
               </div>
               {loadingState.totalBytes > 0 && (
                 <p className="text-xs text-white/70 tabular-nums">
-                  {(loadingState.loadedBytes / 1024 / 1024).toFixed(1)}MB /{' '}
-                  {(loadingState.totalBytes / 1024 / 1024).toFixed(1)}MB
+                  {(loadingState.loadedBytes / 1024 / 1024).toFixed(1)}
+                  MB /
+                  {' '}
+                  {(loadingState.totalBytes / 1024 / 1024).toFixed(1)}
+                  MB
                 </p>
               )}
             </>

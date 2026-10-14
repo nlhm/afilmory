@@ -363,6 +363,7 @@
   "photo.copying": "正在複製圖像...",
   "photo.download": "下載圖像",
   "photo.error.loading": "圖片載入失敗",
+  "photo.error.original": "原圖載入失敗，仍可瀏覽預覽圖。",
   "photo.live.badge": "原況",
   "photo.live.converting.detail": "正在使用 {{method}} 轉換影片格式...",
   "photo.live.converting.video": "正在轉換原況照片影片",

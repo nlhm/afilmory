@@ -397,6 +397,7 @@
   "photo.copying": "Copying image...",
   "photo.download": "Download Image",
   "photo.error.loading": "Failed to load image",
+  "photo.error.original": "The original could not be loaded; the preview is still available.",
   "photo.live.badge": "Live",
   "photo.live.converting.detail": "Converting video format using {{method}}...",
   "photo.live.converting.video": "Converting Live Photo video",
