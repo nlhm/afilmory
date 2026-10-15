@@ -7,11 +7,11 @@ import { Link, Navigate, Outlet, useLocation, useMatch, useSearchParams } from '
 
 import { useMobile } from '~/hooks/useMobile'
 import { useTitle } from '~/hooks/useTitle'
-import { parseFocalLength } from '~/lib/exif-focal-length'
 import { MasonryView } from '~/modules/gallery/MasonryView'
 import { ViewerRouteSync } from '~/modules/viewer/ViewerRouteSync'
 import { PhotosProvider } from '~/providers/photos-provider'
 
+import type { FocalLengthBand } from './distribution'
 import { getFocalLengthDistribution, getLensOptions, getMostUsedFocalGroup } from './distribution'
 
 const focusRing = 'focus-visible:outline-accent focus-visible:outline-2 focus-visible:outline-offset-2'
@@ -28,16 +28,33 @@ export const FocalLengthsPage = () => {
   const lenses = useMemo(() => getLensOptions(photos), [photos])
   const distribution = useMemo(() => getFocalLengthDistribution(photos, lens), [photos, lens])
   const defaultGroup = getMostUsedFocalGroup(distribution.groups)
-  const selectedGroup
-    = focal === null ? defaultGroup : distribution.groups.find(group => group.focalLength === parseFocalLength(focal))
+  const selectedGroup = focal === null ? defaultGroup : distribution.groups.find(group => group.band.id === focal)
   const selectedPhotos = focal === 'unknown' ? distribution.missingPhotos : (selectedGroup?.photos ?? [])
+  const number = new Intl.NumberFormat(i18n.language)
+  const bandLabel = (band: FocalLengthBand) => {
+    if (band.id === 'ultra-wide') {
+      return t('focal.band.ultraWide')
+    }
+    if (band.id === 'super-telephoto') {
+      return t('focal.band.superTelephoto')
+    }
+    return t('focal.band.near', { focal: number.format(Number(band.id)) })
+  }
+  const bandRange = (band: FocalLengthBand) => {
+    if (band.min === 0) {
+      return t('focal.range.below', { max: number.format(band.max) })
+    }
+    if (!Number.isFinite(band.max)) {
+      return t('focal.range.from', { min: number.format(band.min) })
+    }
+    return t('focal.range.between', { min: number.format(band.min), max: number.format(band.max) })
+  }
   const selectedLabel
     = focal === 'unknown'
       ? t('focal.unknown')
       : selectedGroup
-        ? `${selectedGroup.focalLength} mm`
+        ? bandLabel(selectedGroup.band)
         : t('focal.selection.empty')
-  const number = new Intl.NumberFormat(i18n.language)
   const percent = new Intl.NumberFormat(i18n.language, { style: 'percent', maximumFractionDigits: 1 })
   const largestCount = Math.max(1, ...distribution.groups.map(group => group.count))
   const hasLensOption = lenses.some(option => option.lens === lens)
@@ -51,7 +68,7 @@ export const FocalLengthsPage = () => {
 
   if (focal === null && defaultGroup) {
     const canonical = new URLSearchParams(searchParams)
-    canonical.set('focal', String(defaultGroup.focalLength))
+    canonical.set('focal', defaultGroup.band.id)
     return <Navigate to={{ pathname: location.pathname, search: `?${canonical}` }} replace />
   }
 
@@ -105,7 +122,7 @@ export const FocalLengthsPage = () => {
                     next.delete('lens')
                   }
                   if (nextGroup) {
-                    next.set('focal', String(nextGroup.focalLength))
+                    next.set('focal', nextGroup.band.id)
                   }
                   else {
                     next.delete('focal')
@@ -156,33 +173,36 @@ export const FocalLengthsPage = () => {
             <h2 id="focal-distribution-heading" className="text-sm font-semibold">
               {t('focal.distribution')}
             </h2>
-            <p className="text-text-secondary mt-2 text-xs leading-relaxed">{t('focal.denominator')}</p>
+            <p className="text-text-secondary mt-2 text-xs leading-relaxed">
+              {t('focal.grouping')}
+              {' '}
+              {t('focal.denominator')}
+            </p>
           </div>
-          <div className="text-text-tertiary grid grid-cols-[4.5rem_minmax(0,1fr)_3rem_3.5rem] gap-2 px-4 pb-2 text-xs">
+          <div className="text-text-tertiary grid grid-cols-[7rem_minmax(0,1fr)_2rem_3rem] gap-2 px-4 pb-2 text-xs">
             <span>{t('focal.length')}</span>
             <span />
             <span className="text-right">{t('focal.count')}</span>
             <span className="text-right">{t('focal.share')}</span>
           </div>
-          <div className="max-h-96 overflow-y-auto px-2 pb-2">
+          <div className="px-2 pb-2">
             {distribution.groups.map(group => (
               <button
-                key={group.focalLength}
+                key={group.band.id}
                 type="button"
                 aria-pressed={focal !== 'unknown' && group === selectedGroup}
-                onClick={() => selectFocalLength(String(group.focalLength))}
+                onClick={() => selectFocalLength(group.band.id)}
                 className={clsxm(
-                  'grid min-h-11 w-full grid-cols-[4.5rem_minmax(0,1fr)_3rem_3.5rem] items-center gap-2 rounded-xl px-2 text-xs tabular-nums transition-colors duration-200',
+                  'grid min-h-14 w-full grid-cols-[7rem_minmax(0,1fr)_2rem_3rem] items-center gap-2 rounded-xl px-2 py-2 text-xs tabular-nums transition-colors duration-200',
                   focusRing,
                   group === selectedGroup && focal !== 'unknown'
                     ? 'bg-accent/10 text-text'
                     : 'text-text-secondary hover:bg-accent/5 hover:text-text',
                 )}
               >
-                <span className="text-left font-medium">
-                  {group.focalLength}
-                  {' '}
-                  mm
+                <span className="text-left">
+                  <span className="block font-medium">{bandLabel(group.band)}</span>
+                  <span className="text-text-tertiary mt-1 block text-xs">{bandRange(group.band)}</span>
                 </span>
                 <span className="bg-fill-tertiary h-1.5 overflow-hidden rounded-full" aria-hidden="true">
                   <span
@@ -217,9 +237,14 @@ export const FocalLengthsPage = () => {
 
         <section className="min-w-0" aria-labelledby="focal-photos-heading">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2" aria-live="polite">
-            <h2 id="focal-photos-heading" className="text-sm font-semibold">
-              {selectedLabel}
-            </h2>
+            <div>
+              <h2 id="focal-photos-heading" className="text-sm font-semibold">
+                {selectedLabel}
+              </h2>
+              {selectedGroup && focal !== 'unknown' && (
+                <p className="text-text-secondary mt-1 text-xs">{bandRange(selectedGroup.band)}</p>
+              )}
+            </div>
             <span className="text-text-secondary text-xs">{t('focal.photos', { count: selectedPhotos.length })}</span>
           </div>
           {selectedPhotos.length > 0 ? (
