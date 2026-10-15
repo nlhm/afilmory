@@ -1,3 +1,4 @@
+import type { AppleGainMapSource } from '@afilmory/webgl-viewer'
 import { LoadingState } from '@afilmory/webgl-viewer'
 import type { TFunction } from 'i18next'
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
@@ -16,6 +17,7 @@ import { SHOW_SCALE_INDICATOR_DURATION } from './types'
 export const useProgressiveImageState = (): [
   ProgressiveImageState,
   {
+    setGainMap: (gainMap: AppleGainMapSource | undefined) => void
     setBlobSrc: (src: string | null) => void
     setHighResLoaded: (loaded: boolean) => void
     setError: (error: boolean) => void
@@ -26,6 +28,7 @@ export const useProgressiveImageState = (): [
     setIsLivePhotoPlaying: (playing: boolean) => void
   },
 ] => {
+  const [gainMap, setGainMap] = useState<AppleGainMapSource>()
   const [blobSrc, setBlobSrc] = useState<string | null>(null)
   const [highResLoaded, setHighResLoaded] = useState(false)
   const [error, setError] = useState(false)
@@ -37,6 +40,7 @@ export const useProgressiveImageState = (): [
 
   return [
     {
+      gainMap,
       blobSrc,
       highResLoaded,
       error,
@@ -47,6 +51,7 @@ export const useProgressiveImageState = (): [
       isLivePhotoPlaying,
     },
     {
+      setGainMap,
       setBlobSrc,
       setHighResLoaded,
       setError,
@@ -62,8 +67,6 @@ export const useProgressiveImageState = (): [
 export const useImageLoader = (
   src: string,
   isCurrentImage: boolean,
-  highResLoaded: boolean,
-  error: boolean,
   onProgress?: (progress: number) => void,
   onError?: () => void,
   onBlobSrcChange?: (blobSrc: string | null) => void,
@@ -72,12 +75,16 @@ export const useImageLoader = (
   setHighResLoaded?: (loaded: boolean) => void,
   setError?: (error: boolean) => void,
   setIsHighResImageRendered?: (rendered: boolean) => void,
+  setGainMap?: (gainMap: AppleGainMapSource | undefined) => void,
 ) => {
   const { t } = useTranslation()
   const imageLoaderManagerRef = useRef<ImageLoaderManager | null>(null)
+  const loadedSrcRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (highResLoaded || error || !isCurrentImage) return
+    if (!isCurrentImage || loadedSrcRef.current === src) {
+      return undefined
+    }
 
     let isDisposed = false
 
@@ -85,16 +92,14 @@ export const useImageLoader = (
     const imageLoaderManager = new ImageLoaderManager()
     imageLoaderManagerRef.current = imageLoaderManager
 
-    function cleanup() {
+    setError?.(false)
+    if (!loadedSrcRef.current) {
+      setGainMap?.(undefined)
       setHighResLoaded?.(false)
       setBlobSrc?.(null)
-      setError?.(false)
-      onBlobSrcChange?.(null)
       setIsHighResImageRendered?.(false)
-
-      // Reset loading indicator
-      loadingIndicatorRef?.current?.resetLoadingState()
     }
+    loadingIndicatorRef?.current?.resetLoadingState()
 
     const loadImage = async () => {
       try {
@@ -107,6 +112,8 @@ export const useImageLoader = (
         })
 
         if (!isDisposed) {
+          loadedSrcRef.current = src
+          setGainMap?.(result.gainMap)
           setBlobSrc?.(result.blobSrc)
           onBlobSrcChange?.(result.blobSrc)
           setHighResLoaded?.(true)
@@ -117,27 +124,24 @@ export const useImageLoader = (
           return
         }
         console.error('Failed to load image:', loadError)
-        setError?.(true)
+        setError?.(!loadedSrcRef.current)
 
         // 显示错误状态，而不是完全隐藏图片
         loadingIndicatorRef?.current?.updateLoadingState({
           isVisible: true,
           isError: true,
-          errorMessage: t('photo.error.loading'),
+          errorMessage: t(loadedSrcRef.current ? 'photo.error.original' : 'photo.error.loading'),
         })
       }
     }
 
-    cleanup()
-    loadImage()
+    void loadImage()
 
     return () => {
       isDisposed = true
       imageLoaderManager.cleanup()
     }
   }, [
-    highResLoaded,
-    error,
     onProgress,
     src,
     onError,
@@ -146,6 +150,7 @@ export const useImageLoader = (
     loadingIndicatorRef,
     t,
     setBlobSrc,
+    setGainMap,
     setHighResLoaded,
     setError,
     setIsHighResImageRendered,
@@ -185,22 +190,14 @@ export const useScaleIndicator = (
 
   // WebGL Image Viewer 的缩放变化处理
   const onTransformed = useCallback(
-    (originalScale: number, relativeScale: number) => {
-      const isZoomed = Math.abs(relativeScale - 1) > 0.01
+    (originalScale: number, relativeScale: number, isPinching = false) => {
+      const isZoomed = isPinching || relativeScale > 1.01
       handleScaleChange(originalScale, isZoomed)
     },
     [handleScaleChange],
   )
 
-  // DOM Image Viewer 的缩放变化处理
-  const onDOMTransformed = useCallback(
-    (isZoomed: boolean, scale: number) => {
-      handleScaleChange(scale, isZoomed)
-    },
-    [handleScaleChange],
-  )
-
-  return { onTransformed, onDOMTransformed }
+  return { onTransformed }
 }
 
 export const useLivePhotoControls = (
@@ -210,20 +207,45 @@ export const useLivePhotoControls = (
 ) => {
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handleLongPressStart = useCallback(() => {
-    if (!isMobileDevice) return
-    const playVideo = () => livePhotoRef.current?.play()
-    if (!isLivePhoto || !livePhotoRef.current?.getIsVideoLoaded() || isLivePhotoPlaying) {
-      return
-    }
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current)
-    }
-    longPressTimerRef.current = setTimeout(playVideo, 200)
-  }, [isLivePhoto, isLivePhotoPlaying, livePhotoRef])
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const handleLongPressStart = useCallback(
+    (event?: React.SyntheticEvent) => {
+      if (!isMobileDevice) {
+        return
+      }
+      if (((event as React.TouchEvent | undefined)?.touches?.length ?? 0) > 1) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current)
+        }
+        if (isLivePhotoPlaying) {
+          livePhotoRef.current?.stop()
+        }
+        return
+      }
+      const playVideo = () => livePhotoRef.current?.play()
+      if (!isLivePhoto || !livePhotoRef.current?.getIsVideoLoaded() || isLivePhotoPlaying) {
+        return
+      }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
+      longPressTimerRef.current = setTimeout(playVideo, 200)
+    },
+    [isLivePhoto, isLivePhotoPlaying, livePhotoRef],
+  )
 
   const handleLongPressEnd = useCallback(() => {
-    if (!isMobileDevice) return
+    if (!isMobileDevice) {
+      return undefined
+    }
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current)
     }
@@ -235,16 +257,17 @@ export const useLivePhotoControls = (
   return { handleLongPressStart, handleLongPressEnd }
 }
 
-export const useWebGLLoadingState = (loadingIndicatorRef: React.RefObject<LoadingIndicatorRef | null>) => {
+export const useImageViewerLoadingState = (loadingIndicatorRef: React.RefObject<LoadingIndicatorRef | null>) => {
   const { t } = useTranslation()
 
-  const handleWebGLLoadingStateChange = useCallback(
+  const handleImageLoadingStateChange = useCallback(
     (isLoading: boolean, state?: LoadingState, quality?: 'high' | 'medium' | 'low' | 'unknown') => {
       let message = ''
 
       if (state === LoadingState.CREATE_TEXTURE) {
         message = t('photo.webgl.creatingTexture')
-      } else if (state === LoadingState.IMAGE_LOADING) {
+      }
+      else if (state === LoadingState.IMAGE_LOADING) {
         message = t('photo.webgl.loadingImage')
       }
 
@@ -258,10 +281,15 @@ export const useWebGLLoadingState = (loadingIndicatorRef: React.RefObject<Loadin
     [t, loadingIndicatorRef],
   )
 
-  return handleWebGLLoadingStateChange
+  return handleImageLoadingStateChange
 }
 
-export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunction<'app', undefined>) => [
+export const createContextMenuItems = (
+  blobSrc: string,
+  originalSrc: string,
+  alt: string,
+  t: TFunction<'app', undefined>,
+) => [
   new MenuItemText({
     label: t('photo.copy.image'),
     click: async () => {
@@ -296,10 +324,12 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
                   }),
                 ])
                 resolve()
-              } else {
+              }
+              else {
                 reject(new Error('Failed to convert image to PNG'))
               }
-            } catch (error) {
+            }
+            catch (error) {
               reject(error)
             }
           }, 'image/png')
@@ -307,12 +337,13 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
 
         toast.dismiss(loadingToast)
         toast.success(t('photo.copy.success'))
-      } catch (error) {
+      }
+      catch (error) {
         console.error('Failed to copy image:', error)
 
         // Fallback: try to copy the original blob
         try {
-          const blob = await fetch(blobSrc).then((res) => res.blob())
+          const blob = await fetch(blobSrc).then(res => res.blob())
           await navigator.clipboard.write([
             new ClipboardItem({
               [blob.type]: blob,
@@ -320,7 +351,8 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
           ])
           toast.dismiss(loadingToast)
           toast.success(t('photo.copy.success'))
-        } catch (fallbackError) {
+        }
+        catch (fallbackError) {
           console.error('Fallback copy also failed:', fallbackError)
           toast.dismiss(loadingToast)
           toast.error(t('photo.copy.error'))
@@ -331,11 +363,23 @@ export const createContextMenuItems = (blobSrc: string, alt: string, t: TFunctio
   MenuItemSeparator.default,
   new MenuItemText({
     label: t('photo.download'),
-    click: () => {
-      const a = document.createElement('a')
-      a.href = blobSrc
-      a.download = alt
-      a.click()
+    click: async () => {
+      try {
+        const response = await fetch(originalSrc)
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        const url = URL.createObjectURL(await response.blob())
+        const a = document.createElement('a')
+        a.href = url
+        a.download = alt
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+      catch (error) {
+        console.error('Failed to download original image:', error)
+        toast.error(t('photo.error.loading'))
+      }
     },
   }),
 ]

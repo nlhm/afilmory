@@ -34,6 +34,49 @@ class MemoryCache {
   }
 }
 
+test('a cache hit returns without waiting for a metadata write', async () => {
+  const cache = new MemoryCache()
+  const originalCaches = globalThis.caches
+  const originalLocation = globalThis.location
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: new URL(ORIGIN) })
+  Object.defineProperty(globalThis, 'caches', { configurable: true, value: { async open() {
+    return cache
+  } } })
+  let release!: () => void
+  let entered!: () => void
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const writing = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const put = cache.put.bind(cache)
+  try {
+    const src = '/api/media/photo?kind=original&v=1'
+    const blob = new Blob(['photo'], { type: 'image/jpeg' })
+    await cacheProtectedMediaBlob(src, blob)
+    cache.put = async (request, response) => {
+      if (toUrl(request).includes('cache-metadata')) {
+        entered()
+        await blocked
+      }
+      await put(request, response)
+    }
+    const hit = getProtectedMediaBlob(src)
+    await writing
+    const result = await Promise.race([hit, new Promise<null>(resolve => setTimeout(resolve, 100, null))])
+    assert.equal(await result?.text(), 'photo')
+    release()
+    await cacheProtectedMediaBlob(src, blob)
+  }
+  finally {
+    release()
+    cache.put = put
+    Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches })
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
+  }
+})
+
 test('protected media cache survives a later visit and gallery logout', async () => {
   const cache = new MemoryCache()
   const openedCacheNames: string[] = []
@@ -66,6 +109,7 @@ test('protected media cache survives a later visit and gallery logout', async ()
     assert.ok(openedCacheNames.every(name => name === PROTECTED_MEDIA_CACHE_NAME))
   }
   finally {
+    await cacheProtectedMediaBlob('/api/media/flush', new Blob())
     globalThis.fetch = originalFetch
     Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches })
     Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
@@ -101,6 +145,7 @@ test('protected media cache keys different original versions separately', async 
     assert.equal(await (await getProtectedMediaBlob(nextSrc))?.text(), 'new-photo')
   }
   finally {
+    await cacheProtectedMediaBlob('/api/media/flush', new Blob())
     Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches })
     Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
   }
@@ -135,6 +180,7 @@ test('protected media cache normalizes relative URLs before storing LRU metadata
     assert.deepEqual(Object.keys(metadata.entries), [absoluteSrc])
   }
   finally {
+    await cacheProtectedMediaBlob('/api/media/flush', new Blob())
     Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches })
     Object.defineProperty(globalThis, 'location', { configurable: true, value: originalLocation })
   }

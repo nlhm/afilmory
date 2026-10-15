@@ -19,6 +19,10 @@ const photo = {
   originalUrl: 'https://assets.woodbrook.cn/originals/private-photo.jpg',
   thumbnailUrl: 'https://assets.woodbrook.cn/thumbnails/private-photo.jpg',
   thumbnailDigest: 'thumbnail-digest-456',
+  previewUrl: 'https://assets.woodbrook.cn/previews/private-photo.jpg',
+  previewDigest: 'preview-digest-789',
+  previewWidth: 1200,
+  previewHeight: 800,
   ogImageUrl: 'https://assets.woodbrook.cn/og/private-photo.png',
   thumbHash: null,
   width: 1200,
@@ -52,6 +56,7 @@ test('browser manifest uses only internal media routes and omits object keys', (
 
   assert.equal(browserPhoto.originalUrl, '/api/media/private%2Fphoto%2001?kind=original&v=original-digest-123')
   assert.equal(browserPhoto.thumbnailUrl, '/thumbnails/private-photo.jpg?v=thumbnail-digest-456')
+  assert.equal(browserPhoto.previewUrl, '/previews/private/photo%2001.jpg?v=preview-digest-789')
   assert.deepEqual(browserPhoto.video, {
     type: 'live-photo',
     videoUrl: '/api/media/private%2Fphoto%2001?kind=live-video',

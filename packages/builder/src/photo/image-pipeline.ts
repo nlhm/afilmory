@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer'
 import crypto from 'node:crypto'
 import path from 'node:path'
 
@@ -6,6 +7,8 @@ import { compressUint8Array } from '@afilmory/utils'
 import sharp from 'sharp'
 
 import type { BuilderOptions } from '../builder/builder.js'
+import { extractXmpMetadataFromExif } from '../image/exif.js'
+import { generatePhotoPreview } from '../image/preview.js'
 import {
   convertBmpToJpegSharpInstance,
   getImageMetadataWithSharp,
@@ -25,10 +28,15 @@ import { getGlobalLoggers } from './logger-adapter.js'
 import { detectMotionPhoto } from './motion-photo-detector.js'
 import type { PhotoProcessorOptions } from './processor.js'
 
+const EMPTY_XMP_METADATA = {
+  keywords: [] as string[],
+  regions: [],
+}
+
 export interface ProcessedImageData {
   sharpInstance: sharp.Sharp
   imageBuffer: Buffer
-  metadata: { width: number; height: number }
+  metadata: { width: number, height: number }
 }
 
 export interface PhotoProcessingContext {
@@ -46,7 +54,7 @@ export interface PhotoProcessingContext {
  */
 export async function preprocessImage(
   photoKey: string,
-): Promise<{ rawBuffer: Buffer; processedBuffer: Buffer } | null> {
+): Promise<{ rawBuffer: Buffer, processedBuffer: Buffer } | null> {
   const loggers = getGlobalLoggers()
   const { storageManager, prefetchedBuffers } = getPhotoExecutionContext()
 
@@ -62,7 +70,8 @@ export async function preprocessImage(
     let imageBuffer: Buffer
     try {
       imageBuffer = await preprocessImageBuffer(rawImageBuffer, photoKey)
-    } catch (error) {
+    }
+    catch (error) {
       loggers.image.error(`预处理图片失败：${photoKey}`, error)
       return null
     }
@@ -71,7 +80,8 @@ export async function preprocessImage(
       rawBuffer: rawImageBuffer,
       processedBuffer: imageBuffer,
     }
-  } catch (error) {
+  }
+  catch (error) {
     loggers.image.error(`图片预处理失败：${photoKey}`, error)
     return null
   }
@@ -98,7 +108,8 @@ export async function processImageWithSharp(imageBuffer: Buffer, photoKey: strin
         sharpInstance = await convertBmpToJpegSharpInstance(imageBuffer)
         // Update the image buffer to reflect the new JPEG data from the Sharp instance.
         processedBuffer = await sharpInstance.toBuffer()
-      } catch (error) {
+      }
+      catch (error) {
         loggers.image.error(`转换 BMP 失败：${photoKey}`, error)
         return null
       }
@@ -116,7 +127,8 @@ export async function processImageWithSharp(imageBuffer: Buffer, photoKey: strin
       imageBuffer: processedBuffer,
       metadata,
     }
-  } catch (error) {
+  }
+  catch (error) {
     loggers.image.error(`Sharp 处理失败：${photoKey}`, error)
     return null
   }
@@ -152,7 +164,7 @@ export async function executePhotoProcessingPipeline(
   context: PhotoProcessingContext,
 ): Promise<PhotoManifestItem | null> {
   const { photoKey, obj, existingItem, livePhotoMap, options } = context
-  const { storageManager } = getPhotoExecutionContext()
+  const { storageManager, builder } = getPhotoExecutionContext()
   const loggers = getGlobalLoggers()
   // Generate the actual photo ID with digest suffix
   const photoId = await generatePhotoId(photoKey)
@@ -160,13 +172,17 @@ export async function executePhotoProcessingPipeline(
   try {
     // 1. 预处理图片
     const imageData = await preprocessImage(photoKey)
-    if (!imageData) return null
+    if (!imageData) {
+      return null
+    }
     const originalDigest = crypto.createHash('sha256').update(imageData.rawBuffer).digest('hex')
     const sourceChanged = existingItem?.digest !== originalDigest
 
     // 2. 处理图片并创建 Sharp 实例
     const processedData = await processImageWithSharp(imageData.processedBuffer, photoKey)
-    if (!processedData) return null
+    if (!processedData) {
+      return null
+    }
 
     const { sharpInstance, imageBuffer, metadata } = processedData
 
@@ -179,6 +195,15 @@ export async function executePhotoProcessingPipeline(
       sourceChanged,
     )
 
+    const preview = await generatePhotoPreview(
+      imageBuffer,
+      photoId,
+      existingItem,
+      options.isForceMode || options.isForceThumbnails || sourceChanged,
+      !options.dryRun,
+      builder.getConfig().system.processing.limitInputPixels,
+    )
+
     context.pluginData[THUMBNAIL_PLUGIN_DATA_KEY] = {
       photoId,
       fileName: `${photoId}.jpg`,
@@ -188,16 +213,25 @@ export async function executePhotoProcessingPipeline(
 
     // 4. 处理 EXIF 数据
     const exifData = await processExifData(imageBuffer, imageData.rawBuffer, photoKey, existingItem, options)
+    const exiftoolXmpMetadata = options.xmpKeywordsEnabled || options.xmpRegionsEnabled
+      ? extractXmpMetadataFromExif(exifData)
+      : EMPTY_XMP_METADATA
+    const xmpKeywords = options.xmpKeywordsEnabled
+      ? exiftoolXmpMetadata.keywords
+      : []
+    const xmpRegions = options.xmpRegionsEnabled
+      ? exiftoolXmpMetadata.regions
+      : []
 
     // 5. 检测 HDR GainMap（Ultra HDR 图片）
     const hasGainMap = detectGainMap({
-      exifData: exifData as Record<string, unknown> | null,
+      exifData: exifData as unknown as Record<string, unknown> | null,
     })
 
     // 6. 检测 Motion Photo（从图片中提取嵌入视频的元数据）
     const motionPhotoMetadata = detectMotionPhoto({
       rawImageBuffer: imageData.rawBuffer,
-      exifData: exifData as Record<string, unknown> | null,
+      exifData: exifData as unknown as Record<string, unknown> | null,
     })
 
     // 7. 处理 Live Photo（独立的视频文件）
@@ -225,9 +259,10 @@ export async function executePhotoProcessingPipeline(
       title: photoInfo.title,
       description: photoInfo.description,
       dateTaken: photoInfo.dateTaken,
-      tags: photoInfo.tags,
+      tags: options.xmpKeywordsEnabled ? mergeUniqueTags(photoInfo.tags, xmpKeywords) : photoInfo.tags,
       originalUrl: await storageManager.generatePublicUrl(photoKey),
       thumbnailUrl: thumbnailResult.thumbnailUrl,
+      ...preview,
       thumbHash: thumbnailResult.thumbHash ? compressUint8Array(thumbnailResult.thumbHash) : null,
       width: metadata.width,
       height: metadata.height,
@@ -238,6 +273,8 @@ export async function executePhotoProcessingPipeline(
       digest: originalDigest,
       thumbnailDigest: thumbnailResult.thumbnailDigest,
       exif: exifData,
+      keywords: xmpKeywords,
+      regions: xmpRegions,
       toneAnalysis,
       location: existingItem?.location ?? null,
       // Video source (Motion Photo or Live Photo)
@@ -258,17 +295,37 @@ export async function executePhotoProcessingPipeline(
             : undefined,
       // HDR 相关字段
       isHDR:
-        exifData?.MPImageType === 'Gain Map Image' ||
-        exifData?.UniformResourceName === 'urn:iso:std:iso:ts:21496:-1' ||
-        hasGainMap,
+        exifData?.MPImageType === 'Gain Map Image'
+        || exifData?.UniformResourceName === 'urn:iso:std:iso:ts:21496:-1'
+        || hasGainMap,
     }
 
     loggers.image.success(`✅ 处理完成：${photoKey}`)
     return photoItem
-  } catch (error) {
+  }
+  catch (error) {
     loggers.image.error(`❌ 处理管道失败：${photoKey}`, error)
     return null
   }
+}
+
+function mergeUniqueTags(...groups: string[][]): string[] {
+  const seen = new Set<string>()
+  const merged: string[] = []
+
+  for (const group of groups) {
+    for (const value of group) {
+      const normalized = value.trim()
+      if (!normalized || seen.has(normalized)) {
+        continue
+      }
+
+      seen.add(normalized)
+      merged.push(normalized)
+    }
+  }
+
+  return merged
 }
 
 /**
@@ -276,7 +333,7 @@ export async function executePhotoProcessingPipeline(
  */
 export async function processPhotoWithPipeline(
   context: PhotoProcessingContext,
-  runtime: { runState: PluginRunState; builderOptions: BuilderOptions },
+  runtime: { runState: PluginRunState, builderOptions: BuilderOptions },
 ): Promise<{
   item: PhotoManifestItem | null
   type: 'new' | 'processed' | 'skipped' | 'failed'
@@ -315,7 +372,8 @@ export async function processPhotoWithPipeline(
   const isNewPhoto = !existingItem
   if (isNewPhoto) {
     loggers.image.info(`🆕 新照片：${photoKey}`)
-  } else {
+  }
+  else {
     loggers.image.info(`🔄 更新照片 (${reason})：${photoKey}`)
   }
 
@@ -327,7 +385,8 @@ export async function processPhotoWithPipeline(
     if (!processedItem) {
       resultType = 'failed'
     }
-  } catch (error) {
+  }
+  catch (error) {
     await builder.emitPluginEvent(runtime.runState, 'photoProcessError', {
       options: runtime.builderOptions,
       context,

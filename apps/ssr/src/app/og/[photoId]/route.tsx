@@ -3,8 +3,9 @@ import process from 'node:process'
 
 import type { NextRequest } from 'next/server'
 
-import { requireGallerySession } from '~/lib/gallery-access/request'
-import { PRIVATE_GALLERY_ROBOTS_CONTENT } from '~/lib/gallery-access/privacy'
+import { getGalleryThumbnailUrl } from '~/lib/gallery-access/manifest'
+import { handleGalleryOgRequest } from '~/lib/gallery-access/og'
+import { photoLoader } from '~/lib/photo-loader'
 
 function getDefaultCoreApiBase(): string {
   // In Docker, HOSTNAME is set to the container ID, and localhost may not resolve correctly (IPv6 issues).
@@ -53,35 +54,14 @@ function buildForwardHeaders(request: NextRequest): Headers {
 export const revalidate = 0
 
 export const GET = async (request: NextRequest, { params }: { params: Promise<{ photoId: string }> }) => {
-  const unauthorized = requireGallerySession(request)
-  if (unauthorized) {
-    return unauthorized
-  }
-
   const { photoId } = await params
-  const targetUrl = buildBackendUrl(photoId)
-
-  const response = await fetch(targetUrl, {
-    headers: buildForwardHeaders(request),
-  })
-
-  if (!response.ok) {
-    return new Response(await response.text(), {
-      status: response.status,
-      headers: {
-        'Cache-Control': 'private, no-store',
-        'Content-Type': response.headers.get('content-type') || 'text/plain; charset=utf-8',
-        'X-Robots-Tag': PRIVATE_GALLERY_ROBOTS_CONTENT,
-      },
-    })
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    headers: {
-      'Cache-Control': 'private, no-store',
-      'Content-Type': response.headers.get('content-type') || 'image/png',
-      'X-Robots-Tag': PRIVATE_GALLERY_ROBOTS_CONTENT,
+  return handleGalleryOgRequest(request, photoId, {
+    backendUrl: buildBackendUrl(photoId),
+    forwardHeaders: buildForwardHeaders(request),
+    fetch,
+    resolveThumbnail: (id) => {
+      const photo = photoLoader.getPhoto(id)
+      return photo ? getGalleryThumbnailUrl(photo) : undefined
     },
   })
 }

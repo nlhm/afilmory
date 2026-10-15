@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -56,7 +57,8 @@ export async function processThumbnailAndBlurhash(
         thumbnailDigest: createThumbnailDigest(thumbnailBuffer),
         thumbHash: decompressUint8Array(existingItem.thumbHash),
       }
-    } catch (error) {
+    }
+    catch (error) {
       loggers.thumbnail.warn(`读取现有缩略图失败，重新生成：${photoId}`, error)
       // 继续执行生成逻辑
     }
@@ -67,6 +69,7 @@ export async function processThumbnailAndBlurhash(
     imageBuffer,
     photoId,
     options.isForceMode || options.isForceThumbnails || sourceChanged,
+    !options.dryRun,
     limitInputPixels,
   )
 

@@ -1,5 +1,10 @@
 import type { LoadingState } from './enum'
 
+export interface AppleGainMapSource {
+  url: string
+  headroom: number
+}
+
 export interface WheelConfig {
   step: number
   wheelDisabled?: boolean
@@ -28,11 +33,26 @@ export interface VelocityAnimationConfig {
   sensitivity: number
   animationTime: number
 }
-export interface WebGLImageViewerProps {
+
+export interface ImageViewportState {
+  containerWidth: number
+  containerHeight: number
+  imageWidth: number
+  imageHeight: number
+  scale: number
+  relativeScale: number
+  fitToScreenScale: number
+  translateX: number
+  translateY: number
+}
+
+export interface ImageViewerOptions {
   src: string
   className?: string
   width?: number // 可选的预知图片宽度，用于优化加载
   height?: number // 可选的预知图片高度，用于优化加载
+  originalWidth?: number
+  originalHeight?: number
   initialScale?: number
   minScale?: number
   maxScale?: number
@@ -45,7 +65,8 @@ export interface WebGLImageViewerProps {
   smooth?: boolean
   alignmentAnimation?: AlignmentAnimationConfig
   velocityAnimation?: VelocityAnimationConfig
-  onZoomChange?: (originalScale: number, relativeScale: number) => void
+  onZoomChange?: (originalScale: number, relativeScale: number, isPinching?: boolean) => void
+  onViewportChange?: (viewport: ImageViewportState) => void
   onImageCopied?: () => void
   onLoadingStateChange?: (
     isLoading: boolean,
@@ -54,7 +75,15 @@ export interface WebGLImageViewerProps {
   ) => void
   debug?: boolean
 }
-export interface WebGLImageViewerRef {
+
+export interface ViewerPerformanceEvent {
+  stage: 'renderer-image' | 'texture-prepare' | 'renderer-ready' | 'renderer-error' | 'promotion-wait'
+  durationMs: number
+  renderer?: 'webgpu' | 'webgl'
+  resourceWidth?: number
+  resourceHeight?: number
+}
+export interface ImageViewerRef {
   zoomIn: (animated?: boolean) => void
   zoomOut: (animated?: boolean) => void
   resetView: () => void
@@ -62,14 +91,16 @@ export interface WebGLImageViewerRef {
 }
 
 export interface DebugInfo {
+  renderer?: 'webgpu' | 'webgl'
+  hdr?: boolean
   scale: number
   relativeScale: number
   translateX: number
   translateY: number
   currentLOD: number
   lodLevels: number
-  canvasSize: { width: number; height: number }
-  imageSize: { width: number; height: number }
+  canvasSize: { width: number, height: number }
+  imageSize: { width: number, height: number }
   fitToScreenScale: number
   userMaxScale: number
   effectiveMaxScale: number

@@ -1,3 +1,4 @@
+import type { AppleGainMapSource } from '@afilmory/webgl-viewer'
 import { fileTypeFromBlob } from 'file-type'
 
 import { i18nAtom } from '~/i18n'
@@ -6,7 +7,10 @@ import { jotaiStore } from '~/lib/jotai'
 import { LRUCache } from '~/lib/lru-cache'
 import { extractMotionPhotoVideo } from '~/lib/motion-photo-extractor'
 import { cacheProtectedMediaBlob, getProtectedMediaBlob } from '~/lib/protected-media-cache'
+import type { ResourceSubscription } from '~/lib/shared-resource-pool'
+import { SharedResourcePool } from '~/lib/shared-resource-pool'
 import { convertMovToMp4, needsVideoConversion } from '~/lib/video-converter'
+import { viewerDiagnostics } from '~/lib/viewer-diagnostics'
 import type { VideoSource } from '~/modules/viewer/types'
 
 export interface LoadingState {
@@ -28,6 +32,7 @@ export interface LoadingCallbacks {
 }
 
 export interface ImageLoadResult {
+  gainMap?: AppleGainMapSource
   blobSrc: string
   convertedUrl?: string
 }
@@ -43,7 +48,9 @@ export interface ImageCacheResult {
   format: string
 }
 
-const pendingImageLoads = new Map<string, Promise<ImageLoadResult>>()
+type ImageLoadUpdate = { type: 'progress', progress: number } | { type: 'state', state: Partial<LoadingState> }
+
+const imageLoads = new SharedResourcePool<ImageLoadResult, ImageLoadUpdate>()
 
 // Regular image cache using LRU cache
 const regularImageCache: LRUCache<string, ImageCacheResult> = new LRUCache<string, ImageCacheResult>(
@@ -51,8 +58,8 @@ const regularImageCache: LRUCache<string, ImageCacheResult> = new LRUCache<strin
   (value, key, reason) => {
     try {
       URL.revokeObjectURL(value.blobSrc)
-      console.info(`Regular image cache: Revoked blob URL - ${reason}`)
-    } catch (error) {
+    }
+    catch (error) {
       console.warn(`Failed to revoke regular image blob URL (${reason}):`, error)
     }
   },
@@ -67,8 +74,8 @@ function generateRegularImageCacheKey(url: string): string {
 }
 
 export class ImageLoaderManager {
+  private subscription: ResourceSubscription<ImageLoadResult> | null = null
   private currentXHR: XMLHttpRequest | null = null
-  private delayTimer: NodeJS.Timeout | null = null
   private currentLoadReject: ((reason?: unknown) => void) | null = null
   private isCancelled = false
 
@@ -100,9 +107,9 @@ export class ImageLoaderManager {
         return false
       }
 
-      console.info(`Valid image detected: ${fileType.ext} (${fileType.mime})`)
       return true
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to detect file type:', error)
       return false
     }
@@ -110,37 +117,65 @@ export class ImageLoaderManager {
 
   async loadImage(src: string, callbacks: LoadingCallbacks = {}): Promise<ImageLoadResult> {
     this.isCancelled = false
+    const started = performance.now()
 
     const memoryCachedResult = regularImageCache.get(generateRegularImageCacheKey(src))
     if (memoryCachedResult) {
       callbacks.onLoadingStateUpdate?.({ isVisible: false })
+      viewerDiagnostics.record(src, {
+        stage: 'load',
+        cache: 'memory',
+        durationMs: performance.now() - started,
+        bytes: memoryCachedResult.originalSize,
+      })
       return { blobSrc: memoryCachedResult.blobSrc }
     }
 
-    const pendingLoad = pendingImageLoads.get(src)
-    if (pendingLoad) {
-      callbacks.onLoadingStateUpdate?.({ isVisible: true, isQueueWaiting: true })
-      try {
-        const result = await pendingLoad
-        callbacks.onLoadingStateUpdate?.({ isVisible: false, isQueueWaiting: false })
-        return result
-      }
-      catch (error) {
-        callbacks.onLoadingStateUpdate?.({ isVisible: false, isQueueWaiting: false })
-        callbacks.onError?.()
-        throw error
-      }
-    }
-
-    const loadPromise = this.loadImageUncached(src, callbacks)
-    pendingImageLoads.set(src, loadPromise)
-
+    const subscription = imageLoads.subscribe(
+      src,
+      async (signal, publish) => {
+        const loader = new ImageLoaderManager()
+        const cancel = () => loader.cleanup()
+        signal.addEventListener('abort', cancel, { once: true })
+        try {
+          signal.throwIfAborted()
+          return await loader.loadImageUncached(src, {
+            onProgress: progress => publish({ type: 'progress', progress }),
+            onLoadingStateUpdate: state => publish({ type: 'state', state }),
+          })
+        }
+        finally {
+          signal.removeEventListener('abort', cancel)
+        }
+      },
+      (update) => {
+        if (update.type === 'progress') {
+          callbacks.onProgress?.(update.progress)
+        }
+        else {
+          callbacks.onLoadingStateUpdate?.(update.state)
+        }
+      },
+    )
+    this.subscription = subscription
     try {
-      return await loadPromise
+      const result = await subscription.promise
+      viewerDiagnostics.record(src, { stage: 'load', durationMs: performance.now() - started })
+      return result
+    }
+    catch (error) {
+      viewerDiagnostics.record(src, {
+        stage: error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'error',
+        durationMs: performance.now() - started,
+      })
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        callbacks.onError?.()
+      }
+      throw error
     }
     finally {
-      if (pendingImageLoads.get(src) === loadPromise) {
-        pendingImageLoads.delete(src)
+      if (this.subscription === subscription) {
+        this.subscription = null
       }
     }
   }
@@ -150,7 +185,14 @@ export class ImageLoaderManager {
 
     onLoadingStateUpdate?.({ isVisible: true })
 
+    const cacheStarted = performance.now()
     const persistedBlob = await getProtectedMediaBlob(src)
+    viewerDiagnostics.record(src, {
+      stage: 'cache-read',
+      durationMs: performance.now() - cacheStarted,
+      cache: persistedBlob ? 'persistent' : 'http',
+      bytes: persistedBlob?.size,
+    })
     if (this.isCancelled) {
       throw new DOMException('Image load aborted', 'AbortError')
     }
@@ -159,91 +201,97 @@ export class ImageLoaderManager {
     }
 
     return new Promise((resolve, reject) => {
+      const downloadStarted = performance.now()
       this.currentLoadReject = reject
-      this.delayTimer = setTimeout(async () => {
-        this.delayTimer = null
-        const xhr = new XMLHttpRequest()
-        xhr.open('GET', src)
-        xhr.responseType = 'blob'
+      const xhr = new XMLHttpRequest()
+      xhr.open('GET', src)
+      xhr.responseType = 'blob'
 
-        xhr.onload = async () => {
-          this.currentXHR = null
-          if (xhr.status === 200) {
-            try {
-              // 验证响应是否为图片
-              const blob = xhr.response as Blob
-              if (!(await this.isValidImageBlob(blob))) {
-                onLoadingStateUpdate?.({
-                  isVisible: false,
-                })
-                onError?.()
-                reject(new Error('Response is not a valid image'))
-                return
-              }
-
-              void cacheProtectedMediaBlob(src, blob)
-
-              const result = await this.processImageBlob(
-                blob,
-                src, // 传递原始 URL
-                callbacks,
-              )
-              this.currentLoadReject = null
-              resolve(result)
-            } catch (error) {
-              this.currentLoadReject = null
+      xhr.onload = async () => {
+        this.currentXHR = null
+        if (xhr.status === 200) {
+          try {
+            // 验证响应是否为图片
+            const blob = xhr.response as Blob
+            viewerDiagnostics.record(src, {
+              stage: 'download',
+              cache: 'http',
+              durationMs: performance.now() - downloadStarted,
+              bytes: blob.size,
+            })
+            if (!(await this.isValidImageBlob(blob))) {
               onLoadingStateUpdate?.({
                 isVisible: false,
               })
               onError?.()
-              reject(error)
+              reject(new Error('Response is not a valid image'))
+              return
             }
-          } else {
+
+            void cacheProtectedMediaBlob(src, blob)
+
+            const result = await this.processImageBlob(
+              blob,
+              src, // 传递原始 URL
+              callbacks,
+            )
+            this.currentLoadReject = null
+            resolve(result)
+          }
+          catch (error) {
             this.currentLoadReject = null
             onLoadingStateUpdate?.({
               isVisible: false,
             })
             onError?.()
-            reject(new Error(`HTTP ${xhr.status}`))
+            reject(error)
           }
         }
-
-        xhr.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const progress = (e.loaded / e.total) * 100
-
-            // Update loading progress
-            onLoadingStateUpdate?.({
-              loadingProgress: progress,
-              loadedBytes: e.loaded,
-              totalBytes: e.total,
-            })
-
-            onProgress?.(progress)
-          }
-        }
-
-        xhr.onerror = () => {
-          this.currentXHR = null
+        else {
           this.currentLoadReject = null
-          // Hide loading indicator on error
           onLoadingStateUpdate?.({
             isVisible: false,
           })
-
           onError?.()
-          reject(new Error('Network error'))
+          reject(new Error(`HTTP ${xhr.status}`))
         }
+      }
 
-        xhr.onabort = () => {
-          this.currentXHR = null
-          this.currentLoadReject = null
-          reject(new DOMException('Image load aborted', 'AbortError'))
+      xhr.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const progress = (e.loaded / e.total) * 100
+
+          // Update loading progress
+          onLoadingStateUpdate?.({
+            loadingProgress: progress,
+            loadedBytes: e.loaded,
+            totalBytes: e.total,
+          })
+
+          onProgress?.(progress)
         }
+      }
 
-        xhr.send()
-        this.currentXHR = xhr
-      }, 300)
+      xhr.onerror = () => {
+        this.currentXHR = null
+        this.currentLoadReject = null
+        // Hide loading indicator on error
+        onLoadingStateUpdate?.({
+          isVisible: false,
+        })
+
+        onError?.()
+        reject(new Error('Network error'))
+      }
+
+      xhr.onabort = () => {
+        this.currentXHR = null
+        this.currentLoadReject = null
+        reject(new DOMException('Image load aborted', 'AbortError'))
+      }
+
+      xhr.send()
+      this.currentXHR = xhr
     })
   }
 
@@ -265,7 +313,7 @@ export class ImageLoaderManager {
           // Pattern matching on VideoSource
           if (videoSource.type === 'motion-photo') {
             // Motion Photo: 从图片中提取嵌入视频
-            console.info('Processing Motion Photo embedded video...')
+
             onLoadingStateUpdate?.({
               isVisible: true,
               conversionMessage: i18n.t('video.motion-photo.extracting'),
@@ -280,8 +328,6 @@ export class ImageLoaderManager {
             if (extractedVideoUrl) {
               videoElement.src = extractedVideoUrl
               videoElement.load()
-
-              console.info('Motion Photo video extracted successfully')
 
               onLoadingStateUpdate?.({
                 isVisible: false,
@@ -300,23 +346,28 @@ export class ImageLoaderManager {
               })
 
               resolve(result)
-            } else {
+            }
+            else {
               throw new Error('Failed to extract Motion Photo video')
             }
-          } else if (videoSource.type === 'live-photo') {
+          }
+          else if (videoSource.type === 'live-photo') {
             // Live Photo: 处理独立视频文件
             if (needsVideoConversion(videoSource.videoUrl)) {
               const result = await this.convertVideo(videoSource.videoUrl, videoElement, callbacks)
               resolve(result)
-            } else {
+            }
+            else {
               const result = await this.loadDirectVideo(videoSource.videoUrl, videoElement)
               resolve(result)
             }
-          } else {
+          }
+          else {
             // type === 'none'
             throw new Error('No video source provided')
           }
-        } catch (error) {
+        }
+        catch (error) {
           console.error('Failed to process video:', error)
           onLoadingStateUpdate?.({
             isVisible: false,
@@ -336,6 +387,7 @@ export class ImageLoaderManager {
     callbacks: LoadingCallbacks,
   ): Promise<ImageLoadResult> {
     const { onError: _onError, onLoadingStateUpdate } = callbacks
+    const started = performance.now()
 
     try {
       // 使用策略模式检测并转换图像
@@ -343,9 +395,6 @@ export class ImageLoaderManager {
 
       if (conversionResult) {
         // 需要转换的格式
-        console.info(
-          `Image converted: ${(blob.size / 1024).toFixed(1)}KB → ${(conversionResult.convertedSize / 1024).toFixed(1)}KB`,
-        )
 
         // Hide loading indicator
         onLoadingStateUpdate?.({
@@ -355,19 +404,22 @@ export class ImageLoaderManager {
         return {
           blobSrc: conversionResult.url,
           convertedUrl: conversionResult.url,
+          gainMap: conversionResult.gainMap,
         }
-      } else {
+      }
+      else {
         // 不需要转换的普通图片
         return this.processRegularImage(blob, originalUrl, callbacks)
       }
-    } catch (conversionError) {
+    }
+    catch (conversionError) {
       console.error('Image conversion failed:', conversionError)
 
       // 转换失败时，尝试按普通图片处理
       try {
-        console.info('Falling back to regular image processing')
         return this.processRegularImage(blob, originalUrl, callbacks)
-      } catch (fallbackError) {
+      }
+      catch (fallbackError) {
         console.error('Fallback to regular image processing also failed:', fallbackError)
 
         // Hide loading indicator on error
@@ -378,6 +430,13 @@ export class ImageLoaderManager {
         _onError?.()
         throw conversionError
       }
+    }
+    finally {
+      viewerDiagnostics.record(originalUrl, {
+        stage: 'format-processing',
+        durationMs: performance.now() - started,
+        bytes: blob.size,
+      })
     }
   }
 
@@ -394,8 +453,6 @@ export class ImageLoaderManager {
     // 检查缓存
     const cachedResult = regularImageCache.get(cacheKey)
     if (cachedResult) {
-      console.info('Using cached regular image result', cachedResult)
-
       // Hide loading indicator
       onLoadingStateUpdate?.({
         isVisible: false,
@@ -417,7 +474,6 @@ export class ImageLoaderManager {
 
     // 缓存结果
     regularImageCache.set(cacheKey, result)
-    console.info(`Regular image processed and cached: ${(blob.size / 1024).toFixed(1)}KB, URL: ${originalUrl}`)
 
     // Hide loading indicator
     onLoadingStateUpdate?.({
@@ -443,8 +499,6 @@ export class ImageLoaderManager {
       loadingProgress: 0,
     })
 
-    console.info('Converting MOV video to MP4...')
-
     const i18n = jotaiStore.get(i18nAtom)
 
     const result = await convertMovToMp4(livePhotoVideoUrl, (progress) => {
@@ -456,8 +510,7 @@ export class ImageLoaderManager {
         '编码器', // 备用关键词
       ]
       const isCodecInfo = codecKeywords.some((keyword: string) =>
-        progress.message.toLowerCase().includes(keyword.toLowerCase()),
-      )
+        progress.message.toLowerCase().includes(keyword.toLowerCase()))
 
       onLoadingStateUpdate?.({
         isVisible: true,
@@ -474,10 +527,6 @@ export class ImageLoaderManager {
       videoElement.src = result.videoUrl
       videoElement.load()
 
-      console.info(
-        `Video conversion completed. Size: ${result.convertedSize ? Math.round(result.convertedSize / 1024) : 'unknown'}KB`,
-      )
-
       onLoadingStateUpdate?.({
         isVisible: false,
       })
@@ -492,7 +541,8 @@ export class ImageLoaderManager {
 
         videoElement.addEventListener('canplaythrough', handleVideoCanPlay)
       })
-    } else {
+    }
+    else {
       console.error('Video conversion failed:', result.error)
       onLoadingStateUpdate?.({
         isVisible: false,
@@ -523,14 +573,8 @@ export class ImageLoaderManager {
 
   cleanup() {
     this.isCancelled = true
-
-    // 清理定时器
-    if (this.delayTimer) {
-      clearTimeout(this.delayTimer)
-      this.delayTimer = null
-      this.currentLoadReject?.(new DOMException('Image load aborted', 'AbortError'))
-      this.currentLoadReject = null
-    }
+    this.subscription?.cancel()
+    this.subscription = null
 
     // 取消正在进行的请求
     if (this.currentXHR) {

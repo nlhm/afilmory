@@ -13,12 +13,8 @@ const gallerySecret = (name: string) => {
     : z.string().min(1, `${name} is required in production`)
 }
 
-let _cached: ReturnType<typeof createEnv<{ GALLERY_PASSWORD_HASH: string; GALLERY_SESSION_SECRET: string; PG_CONNECTION_STRING: string | undefined; S3_ACCESS_KEY_ID: string; S3_BUCKET_NAME: string; S3_ENDPOINT: string; S3_PREFIX: string | undefined; S3_REGION: string; S3_SECRET_ACCESS_KEY: string }, {}, {}>> | undefined
-
-export const getEnv = () => {
-  if (_cached) return _cached
-
-  _cached = createEnv({
+const createGalleryEnv = () =>
+  createEnv({
     server: {
       GALLERY_PASSWORD_HASH: gallerySecret('GALLERY_PASSWORD_HASH'),
       GALLERY_SESSION_SECRET: gallerySecret('GALLERY_SESSION_SECRET'),
@@ -44,5 +40,9 @@ export const getEnv = () => {
     emptyStringAsUndefined: true,
   })
 
-  return _cached
+let cachedEnv: ReturnType<typeof createGalleryEnv> | undefined
+
+export const getEnv = () => {
+  cachedEnv ??= createGalleryEnv()
+  return cachedEnv
 }

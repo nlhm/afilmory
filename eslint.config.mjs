@@ -12,6 +12,12 @@ const rootIgnores = globalIgnores([
   'apps/ssr/public/**',
   'apps/web/public/**',
   'packages/docs/public/**',
+  'apps/mobile/ios/**',
+  'apps/mobile/android/**',
+  'apps/mobile/.expo/**',
+  'apps/mobile/expo-env.d.ts',
+  'apps/mobile/Tests/Fixtures/**',
+  'scripts/webgpu-hdr-spike/**',
 ])
 
 const hyobanConfig = await defineConfig(
@@ -116,6 +122,16 @@ const hyobanConfig = await defineConfig(
     },
   },
 
+  // Expo inlines EXPO_PUBLIC_* env vars only through literal `process.env` access,
+  // and expo-router route files / page definitions must export non-component values.
+  {
+    files: ['apps/mobile/**/*.{ts,tsx}'],
+    rules: {
+      'node/prefer-global/process': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
   // Redundant but harmless: keep a local ignore in case this block is used standalone somewhere
   globalIgnores(['apps/ssr/src/index.html.ts', 'apps/ssr/public/**', 'apps/web/public/**', 'packages/docs/public/**']),
 )
@@ -124,4 +140,8 @@ export default [
   // Ensure ignores are applied globally before any other configs
   rootIgnores,
   ...hyobanConfig,
+  {
+    files: ['apps/web/src/modules/metadata/formatExifData.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
 ]

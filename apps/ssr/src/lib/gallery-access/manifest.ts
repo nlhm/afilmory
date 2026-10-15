@@ -26,6 +26,10 @@ export interface ServerPhotoManifestItem {
   s3Key: string
   thumbnailDigest: string
   thumbnailUrl: string
+  previewUrl: string
+  previewDigest: string
+  previewWidth: number
+  previewHeight: number
   video?: ServerVideoSource
 }
 
@@ -72,6 +76,9 @@ const getInternalThumbnailUrl = (url: string, photoId: string, version: string) 
   }
 }
 
+export const getGalleryThumbnailUrl = (photo: Pick<ServerPhotoManifestItem, 'id' | 'thumbnailUrl' | 'thumbnailDigest'>) =>
+  getInternalThumbnailUrl(photo.thumbnailUrl, photo.id, getVersionedThumbnailSuffix(photo.thumbnailDigest))
+
 const transformVideo = (photoId: string, video: ServerVideoSource | undefined): BrowserVideoSource | undefined => {
   if (!video) {
     return undefined
@@ -88,12 +95,12 @@ const transformVideo = (photoId: string, video: ServerVideoSource | undefined): 
 
 const transformPhoto = (photo: ServerPhotoManifestItem): BrowserPhotoManifestItem => {
   const { ogImageUrl: _ogImageUrl, s3Key: _s3Key, video, ...browserPhoto } = photo
-  const thumbnailVersion = getVersionedThumbnailSuffix(photo.thumbnailDigest)
 
   return {
     ...browserPhoto,
     originalUrl: getMediaUrl(photo.id, 'original', photo.digest),
-    thumbnailUrl: getInternalThumbnailUrl(photo.thumbnailUrl, photo.id, thumbnailVersion),
+    thumbnailUrl: getGalleryThumbnailUrl(photo),
+    previewUrl: `/previews/${photo.id.split('/').map(encodeURIComponent).join('/')}.jpg${getVersionedThumbnailSuffix(photo.previewDigest)}`,
     video: transformVideo(photo.id, video),
   }
 }

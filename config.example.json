@@ -4,6 +4,12 @@
   "description": "Capturing beautiful moments in life, documenting daily warmth and emotions through my lens.",
   "url": "https://gallery.woodbrook.cn/",
   "accentColor": "#007bff",
+  "viewer": {
+    "regions": {
+      "accentSource": "system",
+      "labelPlacement": "edge"
+    }
+  },
   "author": {
     "name": "Hyman",
     "url": "http://www.woodbrook.cn/",

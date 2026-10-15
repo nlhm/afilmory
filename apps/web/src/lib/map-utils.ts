@@ -26,22 +26,24 @@ export function convertExifGPSToDecimal(exif: PickedExif | null): {
     // Handle different EXIF coordinate formats
     if (typeof exif.GPSLatitude === 'number') {
       latitude = exif.GPSLatitude
-    } else {
+    }
+    else {
       latitude = Number(exif.GPSLatitude)
     }
 
     if (typeof exif.GPSLongitude === 'number') {
       longitude = exif.GPSLongitude
-    } else {
+    }
+    else {
       longitude = Number(exif.GPSLongitude)
     }
 
     // Get GPS direction references
-    const latitudeRef =
-      exif.GPSLatitudeRef === 'S' || exif.GPSLatitudeRef === 'South' ? GPSDirection.South : GPSDirection.North
+    const latitudeRef
+      = exif.GPSLatitudeRef === 'S' || exif.GPSLatitudeRef === 'South' ? GPSDirection.South : GPSDirection.North
 
-    const longitudeRef =
-      exif.GPSLongitudeRef === 'W' || exif.GPSLongitudeRef === 'West' ? GPSDirection.West : GPSDirection.East
+    const longitudeRef
+      = exif.GPSLongitudeRef === 'W' || exif.GPSLongitudeRef === 'West' ? GPSDirection.West : GPSDirection.East
 
     // Apply reference direction to coordinates only if they're positive
     // Some EXIF tools already provide properly signed coordinates
@@ -57,15 +59,9 @@ export function convertExifGPSToDecimal(exif: PickedExif | null): {
     let altitude: number | undefined
     let altitudeRef: 'Above Sea Level' | 'Below Sea Level' | undefined
 
-    if (exif.GPSAltitude && typeof exif.GPSAltitude === 'number') {
+    if (typeof exif.GPSAltitude === 'number') {
       altitude = exif.GPSAltitude
-      // 0 (above sea level), 1 (below sea level)
-      altitudeRef = exif.GPSAltitudeRef === 1 ? 'Below Sea Level' : 'Above Sea Level'
-
-      // Apply altitude reference
-      if (altitudeRef === 'Below Sea Level') {
-        altitude = -altitude
-      }
+      altitudeRef = altitude < 0 ? 'Below Sea Level' : 'Above Sea Level'
     }
 
     // Validate coordinates using the validation function
@@ -82,7 +78,8 @@ export function convertExifGPSToDecimal(exif: PickedExif | null): {
       altitude,
       altitudeRef,
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.warn('Failed to parse GPS coordinates from EXIF:', error)
     return null
   }
@@ -92,19 +89,21 @@ export function convertExifGPSToDecimal(exif: PickedExif | null): {
  * GPS coordinate validation function
  */
 export function isValidGPSCoordinates(coords: GPSCoordinates | null): coords is GPSCoordinates {
-  if (!coords) return false
+  if (!coords) {
+    return false
+  }
 
   const { latitude, longitude } = coords
 
   return (
-    typeof latitude === 'number' &&
-    typeof longitude === 'number' &&
-    !Number.isNaN(latitude) &&
-    !Number.isNaN(longitude) &&
-    latitude >= -90 &&
-    latitude <= 90 &&
-    longitude >= -180 &&
-    longitude <= 180
+    typeof latitude === 'number'
+    && typeof longitude === 'number'
+    && !Number.isNaN(latitude)
+    && !Number.isNaN(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180
   )
 }
 
@@ -143,7 +142,7 @@ export function convertPhotoToMarkerFromEXIF(photo: PhotoManifestItem): PhotoMar
  */
 export function convertPhotosToMarkersFromEXIF(photos: PhotoManifestItem[]): PhotoMarker[] {
   return photos
-    .map((photo) => convertPhotoToMarkerFromEXIF(photo))
+    .map(photo => convertPhotoToMarkerFromEXIF(photo))
     .filter((marker): marker is PhotoMarker => marker !== null)
 }
 
@@ -155,8 +154,8 @@ export function calculateMapBounds(markers: PhotoMarker[]): MapBounds | null {
     return null
   }
 
-  const latitudes = markers.map((m) => m.latitude)
-  const longitudes = markers.map((m) => m.longitude)
+  const latitudes = markers.map(m => m.latitude)
+  const longitudes = markers.map(m => m.longitude)
 
   const minLat = Math.min(...latitudes)
   const maxLat = Math.max(...latitudes)
@@ -198,11 +197,21 @@ export function getInitialViewStateForMarkers(markers: PhotoMarker[]): MapViewSt
   const maxDiff = Math.max(latDiff, lngDiff)
 
   let zoom = 10
-  if (maxDiff < 0.01) zoom = 15
-  else if (maxDiff < 0.1) zoom = 12
-  else if (maxDiff < 1) zoom = 8
-  else if (maxDiff < 10) zoom = 5
-  else zoom = 2
+  if (maxDiff < 0.01) {
+    zoom = 15
+  }
+  else if (maxDiff < 0.1) {
+    zoom = 12
+  }
+  else if (maxDiff < 1) {
+    zoom = 8
+  }
+  else if (maxDiff < 10) {
+    zoom = 5
+  }
+  else {
+    zoom = 2
+  }
 
   return {
     longitude: bounds.centerLng,

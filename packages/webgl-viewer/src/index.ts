@@ -1,13 +1,17 @@
 export { LoadingState } from './enum'
+export type { ImageViewerProps } from './ImageViewer'
+export { ImageViewer } from './ImageViewer'
 export type {
   AlignmentAnimationConfig,
+  AppleGainMapSource,
   DebugInfo,
   DoubleClickConfig,
+  ImageViewerOptions,
+  ImageViewerRef,
+  ImageViewportState,
   PanningConfig,
   PinchConfig,
   VelocityAnimationConfig,
-  WebGLImageViewerProps,
-  WebGLImageViewerRef,
+  ViewerPerformanceEvent,
   WheelConfig,
 } from './interface'
-export { WebGLImageViewer } from './WebGLImageViewer'

@@ -134,10 +134,12 @@ export function usePhotoPreloader({ photos, currentIndex, isOpen, readyPhotoId }
     previousIndexRef.current = currentIndex
     previousPhotoIdRef.current = currentPhoto.id
 
-    // Wait until the current full-size resource has finished loading so
-    // background work never competes with the image the user is viewing.
     if (readyPhotoId !== currentPhoto.id) {
-      queue.update([], [resolveImageSrc(currentPhoto.originalUrl)])
+      queue.update([], [currentIndex, ...getPhotoPreloadIndices({
+        currentIndex,
+        direction: directionRef.current,
+        photoCount: photos.length,
+      })].map(index => resolveImageSrc(photos[index]!.previewUrl)))
       return
     }
 
@@ -145,7 +147,7 @@ export function usePhotoPreloader({ photos, currentIndex, isOpen, readyPhotoId }
       currentIndex,
       direction: directionRef.current,
       photoCount: photos.length,
-    }).map(index => resolveImageSrc(photos[index]!.originalUrl))
+    }).map(index => resolveImageSrc(photos[index]!.previewUrl))
 
     queue.update(sources)
   }, [currentIndex, isOpen, photos, queue, readyPhotoId])
