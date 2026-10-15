@@ -394,6 +394,10 @@ export abstract class ImageViewerEngineBase {
     return this.scale
   }
 
+  public isInteracting(): boolean {
+    return this.isAnimating || this.isDragging || this.lastTouchDistance > 0
+  }
+
   public updateCallbacks({
     onZoomChange,
     onViewportChange,

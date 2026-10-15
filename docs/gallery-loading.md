@@ -1,6 +1,6 @@
 # Private gallery image loading
 
-Updated: 2026-10-14.
+Updated: 2026-10-15.
 
 The gallery uses three image sizes: a 600px thumbnail for the grid, a JPEG preview with a maximum edge of 2048px for browsing, and the original for detailed zoom, HDR output, and downloads.
 
@@ -27,3 +27,7 @@ The upstream prebuilt-manifest fetch command (`0ca1c754`) is not included. It fe
 Validation on 2026-10-14: 77 relevant tests passed and one optional real Xiaomi HDR fixture test was skipped. Web, viewer, and SSR TypeScript checks passed, as did frozen dependency installation, the viewer build, and Vite-to-Next production compilation with three synthetic photos. The production parser suite includes a generated paired-JPEG test; its real-photo test runs when `photos/IMG_20251111_002156.jpg` is available.
 
 An Edge browser check used the production SSR app and a local simulated S3 endpoint. Ordinary browsing made no original-media request. Zoom triggered the original request; during a five-second delay the preview stayed visible, and the view stayed in place when the original arrived. A simulated 503 retained the zoomed preview and showed a preview-specific error message. Context-menu download while displaying a preview produced a file byte-identical to the original. HTTP checks confirmed preview and OG endpoints reject unauthenticated requests and authenticated previews use private immutable caching. These checks cover desktop WebGPU and synthetic JPEGs. Actual R2 deployment, mobile touch gestures, native HEIC decoding speed, HDR output on capable displays, and renderer device-loss recovery still need device/environment validation.
+
+Investigation on 2026-10-15 found a separate cause of perceived zoom stutter: a quickly available original could replace the preview resource while its zoom animation was still running. The old renderer was destroyed mid-animation, leaving the view at an intermediate scale until the replacement loaded. Same-photo resource promotion now waits for the renderer to finish animation, dragging, or pinching. Idle viewers promote immediately, different photos switch immediately, and pending promotions are cancelled when superseded or unmounted.
+
+A temporary probe in an Edge production build confirmed the baseline destroyed the renderer with its animation still active; after the fix destruction occurred after animation completion and fit-to-fill reached its target. Both synthetic runs had frame intervals below 25ms, so these measurements establish an animation interruption rather than a measured main-thread long task on that machine. Three scheduling regression tests cover waiting, immediate idle promotion, and cancellation. Temporary probes and synthetic fixtures are excluded from the final change.

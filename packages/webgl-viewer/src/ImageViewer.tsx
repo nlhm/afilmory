@@ -10,6 +10,7 @@ import {
   defaultWheelConfig,
 } from './constants'
 import DebugInfoComponent from './DebugInfo'
+import { afterViewerInteraction } from './interaction-idle'
 import type { AppleGainMapSource, DebugInfo, ImageViewerOptions, ImageViewerRef, ImageViewportState } from './interface'
 import { WebGLImageViewerEngine } from './WebGLImageViewerEngine'
 import { WebGPUImageViewerEngine } from './WebGPUImageViewerEngine'
@@ -61,6 +62,25 @@ export const ImageViewer = ({
   }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewerRef = useRef<WebGLImageViewerEngine | WebGPUImageViewerEngine | null>(null)
+  const requestedResource = useMemo(() => ({ src, width, height, gainMapSource, id: resourceId ?? src }), [
+    src,
+    width,
+    height,
+    gainMapSource,
+    resourceId,
+  ])
+  const [displayedResource, setDisplayedResource] = useState(requestedResource)
+  const activeResource = displayedResource.id === requestedResource.id ? displayedResource : requestedResource
+
+  useEffect(() => {
+    if (requestedResource === displayedResource) {
+      return
+    }
+    return afterViewerInteraction(
+      () => displayedResource.id === requestedResource.id && Boolean(viewerRef.current?.isInteracting()),
+      () => setDisplayedResource(requestedResource),
+    )
+  }, [requestedResource, displayedResource])
   const [tileOutlineEnabled, setTileOutlineEnabled] = useState(false)
   const [renderer, setRenderer] = useState<'webgpu' | 'webgl'>(() =>
     typeof navigator !== 'undefined' && navigator.gpu ? 'webgpu' : 'webgl')
@@ -174,7 +194,7 @@ export const ImageViewer = ({
       const error = reason instanceof Error ? reason : new Error(String(reason))
       const viewport = engine?.getViewport()
       if (viewport && Number.isFinite(viewport.relativeScale) && viewport.imageWidth > 0) {
-        savedViewportRef.current = { src: resourceId ?? src, viewport }
+        savedViewportRef.current = { src: activeResource.id, viewport }
       }
       engine?.destroy()
       if (viewerRef.current === engine) {
@@ -191,10 +211,10 @@ export const ImageViewer = ({
       }
     }
     const config: Required<ImageViewerOptions> = {
-      src,
+      src: activeResource.src,
       className: '',
-      width: width || 0,
-      height: height || 0,
+      width: activeResource.width || 0,
+      height: activeResource.height || 0,
       initialScale,
       minScale,
       maxScale,
@@ -230,17 +250,17 @@ export const ImageViewer = ({
           : new WebGLImageViewerEngine(canvasRef.current, config, debugEnabled ? setDebugInfoRef : undefined)
       viewerRef.current = engine
       setTileOutlineEnabled(engine.isTileOutlineEnabled())
-      const url = new URL(src, document.baseURI).href
+      const url = new URL(activeResource.src, document.baseURI).href
       void (
         engine instanceof WebGPUImageViewerEngine
-          ? engine.loadImage(url, width, height, gainMapSource)
-          : engine.loadImage(url, width, height)
+          ? engine.loadImage(url, activeResource.width, activeResource.height, activeResource.gainMapSource)
+          : engine.loadImage(url, activeResource.width, activeResource.height)
       )
         .then(() => {
           if (disposed || failed || !engine) {
             return
           }
-          if (savedViewportRef.current?.src === (resourceId ?? src)) {
+          if (savedViewportRef.current?.src === activeResource.id) {
             engine.restoreViewport(savedViewportRef.current.viewport)
           }
           savedViewportRef.current = null
@@ -259,7 +279,7 @@ export const ImageViewer = ({
       disposed = true
       const viewport = engine?.getViewport()
       if (viewport && viewport.imageWidth > 0) {
-        savedViewportRef.current = { src: resourceId ?? src, viewport }
+        savedViewportRef.current = { src: activeResource.id, viewport }
       }
       engine?.destroy()
       if (viewerRef.current === engine) {
@@ -268,11 +288,7 @@ export const ImageViewer = ({
     }
   }, [
     renderer,
-    src,
-    resourceId,
-    gainMapSource,
-    width,
-    height,
+    activeResource,
     initialScale,
     minScale,
     maxScale,
