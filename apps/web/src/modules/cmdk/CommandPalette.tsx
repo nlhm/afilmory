@@ -6,7 +6,7 @@ import { AnimatePresence, m } from 'motion/react'
 import * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 
 import { gallerySettingAtom } from '~/atoms/app'
 import { usePhotoViewer } from '~/hooks/usePhotoViewer'
@@ -115,6 +115,7 @@ export const CommandPalette = ({ isOpen, onClose }: CommandPaletteProps) => {
   const { t } = useTranslation()
   const [gallerySetting, setGallerySetting] = useAtom(gallerySettingAtom)
   const navigate = useNavigate()
+  const location = useLocation()
   const { openViewer } = usePhotoViewer()
 
   const [query, setQuery] = useState('')
@@ -167,7 +168,20 @@ export const CommandPalette = ({ isOpen, onClose }: CommandPaletteProps) => {
 
   // Generate commands
   const commands = useMemo((): Command[] => {
-    const cmds: Command[] = []
+    const cmds: Command[] = [
+      {
+        id: 'focal-length-distribution',
+        type: 'action',
+        title: t('focal.title'),
+        subtitle: t('focal.subtitle'),
+        icon: 'i-mingcute-chart-bar-line',
+        action: () => {
+          navigate(`/focal-lengths${location.search}`)
+          onClose()
+        },
+        keywords: ['focal', 'length', 'distribution', 'statistics'],
+      },
+    ]
 
     // Filter commands - Tags
     if (allTags.length > 0) {
@@ -373,7 +387,7 @@ export const CommandPalette = ({ isOpen, onClose }: CommandPaletteProps) => {
     }
 
     return cmds
-  }, [t, gallerySetting, query, navigate, onClose, setGallerySetting, openViewer, updateTagFilterMode])
+  }, [t, gallerySetting, query, navigate, location.search, onClose, setGallerySetting, openViewer, updateTagFilterMode])
 
   // Filter commands based on query
   const filteredCommands = useMemo(() => {
@@ -610,9 +624,7 @@ export const CommandPalette = ({ isOpen, onClose }: CommandPaletteProps) => {
                     </span>
                   </div>
                   {filteredCommands.length > 0 && (
-                    <span>
-                      {t('action.results', { count: filteredCommands.length })}
-                    </span>
+                    <span>{t('action.results', { count: filteredCommands.length })}</span>
                   )}
                 </div>
               </div>

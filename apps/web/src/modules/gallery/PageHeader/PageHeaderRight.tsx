@@ -10,7 +10,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { LogIn, LogOut, User } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { Drawer } from 'vaul'
 
 import { gallerySettingAtom, isCommandPaletteOpenAtom } from '~/atoms/app'
@@ -31,6 +31,7 @@ export const PageHeaderRight = () => {
   const [gallerySetting] = useAtom(gallerySettingAtom)
   const setCommandPaletteOpen = useSetAtom(isCommandPaletteOpenAtom)
   const navigate = useNavigate()
+  const location = useLocation()
   const sessionUser = useAtomValue(sessionUserAtom)
 
   // 计算视图设置是否有自定义配置
@@ -62,6 +63,15 @@ export const PageHeaderRight = () => {
             onClick={() => navigate('/explory')}
           />
         )}
+
+        <Link
+          to={`/focal-lengths${location.search}`}
+          title={t('focal.title')}
+          aria-label={t('focal.title')}
+          className="text-text-secondary hover:bg-accent/10 hover:text-text focus-visible:outline-accent flex size-7 items-center justify-center rounded-lg transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 lg:size-8"
+        >
+          <i className="i-mingcute-chart-bar-line text-sm lg:text-base" aria-hidden="true" />
+        </Link>
 
         {isMobile ? (
           <MobileViewButton

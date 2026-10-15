@@ -1,0 +1,15 @@
+# Focal length distribution
+
+The `/focal-lengths` page describes the actual focal lengths of the finished photos in the gallery manifest. Open it using the chart icon beside the search/view controls, or search for the page title in the command palette.
+
+Statistics use EXIF `FocalLength`, retain decimal values, and normalize equivalent representations such as `35`, `35.0` and `35 mm`. Missing, nonpositive, nonfinite or ambiguous values are excluded from percentages and listed separately. `FocalLengthIn35mmFormat` is never substituted. Shares are calculated against the photos with valid actual focal lengths in the currently selected lens scope, rather than against all published photos. This is a distribution of finished photos, not a shooting-frequency or keeper-rate measurement.
+
+The lens selector defaults to all photos and does not inherit the gallery's tag, camera, rating or date filters. Its options count all photos with that lens, including photos missing focal length. The `lens` query parameter is the same trimmed make/model label used by the gallery's existing lens filter. The `focal` parameter identifies an exact numeric focal length, or `unknown` for excluded photos. The initial selection is the most frequent focal length (the smaller length wins a tie) and is recorded in the URL. Changing lens selects that lens's most frequent valid focal length.
+
+Selecting a row displays its photos using the existing masonry grid. The shared photo viewer navigates only the current group at `/focal-lengths/photos/:photoId`; closing returns to the statistics page with its lens/focal selection intact. Refresh and browser navigation restore the selection. Gallery filter query parameters are preserved for the return link but do not affect these statistics. Unknown photo IDs and photos outside the selected group are not replaced with a different photo.
+
+The page reads the existing manifest and thumbnail/preview assets. It requires neither a new storage layout nor a manifest rebuild when focal metadata already exists. Existing private-gallery access protection also covers these routes.
+
+Run the statistical regression tests with `pnpm --filter @afilmory/web test:focal-lengths`. They cover decimal parsing, actual versus equivalent focal length, invalid metadata, denominator handling, lens filtering and empty scopes. Browser verification uses synthetic photos; distribution accuracy for the deployed gallery depends on the metadata retained in its manifest.
+
+Validation on 2026-10-15: eight statistical tests and 33 existing viewer tests passed, as did web TypeScript checking and Vite-to-Next production builds. Edge checks with eight synthetic photos covered lens counts and percentages, fractional focal length in photo details, missing data, scoped navigation, direct-photo refresh and Escape, browser back/forward, preserving gallery filter parameters, command-palette access, invalid-link recovery, and desktop/320px/390px layouts. Unauthenticated HTTP requests to both new route forms redirected to gallery unlock. These checks do not measure real R2 latency or physical-device touch behavior.

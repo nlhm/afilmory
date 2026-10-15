@@ -1,21 +1,19 @@
 import { ScrollArea, ScrollElementContext } from '@afilmory/ui'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { useEffect, useRef } from 'react'
-import { Outlet, useLocation, useParams, useSearchParams } from 'react-router'
+import { Outlet, useSearchParams } from 'react-router'
 
 import { gallerySettingAtom } from '~/atoms/app'
-import { getViewer, setViewer } from '~/atoms/viewer'
 import { siteConfig } from '~/config'
 import { useMobile } from '~/hooks/useMobile'
 import { usePhotos } from '~/hooks/usePhotoViewer'
 import { normalizeDateRange } from '~/modules/gallery/dateRangeUtils'
 import { PhotosRoot } from '~/modules/gallery/PhotosRoot'
+import { ViewerRouteSync } from '~/modules/viewer/ViewerRouteSync'
 import { PhotosProvider } from '~/providers/photos-provider'
 
 export const Component = () => {
   useSyncGallerySettingsWithUrl()
-  useSyncViewerWithUrl()
-  useSyncViewerCloseShortcut()
 
   const isMobile = useMobile()
   const photos = usePhotos()
@@ -23,6 +21,7 @@ export const Component = () => {
   return (
     <>
       <PhotosProvider photos={photos}>
+        <ViewerRouteSync />
         {siteConfig.accentColor && (
           <style
             dangerouslySetInnerHTML={{
@@ -219,117 +218,4 @@ const useSyncGallerySettingsWithUrl = () => {
     tagFilterMode,
     setSearchParams,
   ])
-}
-
-/**
- * Sync viewer state with URL.
- * URL is the source of truth:
- * - /photos/:photoId -> viewer is open
- * - / or /explory -> viewer is closed
- *
- * This handles browser back/forward by reacting to location changes.
- */
-const useSyncViewerWithUrl = () => {
-  const location = useLocation()
-  const { photoId } = useParams()
-  const photos = usePhotos()
-
-  // Track last processed location to avoid redundant updates
-  const lastProcessedPathRef = useRef<string>('')
-
-  useEffect(() => {
-    const currentPath = location.pathname
-
-    // Skip if we already processed this path
-    if (currentPath === lastProcessedPathRef.current) {
-      return
-    }
-
-    lastProcessedPathRef.current = currentPath
-
-    const isPhotoRoute = currentPath.startsWith('/photos/')
-    const currentViewer = getViewer()
-
-    if (isPhotoRoute && photoId) {
-      // URL says viewer should be open
-      const targetIndex = photos.findIndex(p => p.id === photoId)
-
-      if (
-        targetIndex !== -1 // Open viewer if closed, or update photo if different
-        && (!currentViewer.isOpen || currentViewer.photoId !== photoId)
-      ) {
-        setViewer(prev => ({
-          ...prev,
-          isOpen: true,
-          openInstanceId: prev.isOpen ? prev.openInstanceId : prev.openInstanceId + 1,
-          pendingCloseInstanceId: null,
-          photoId,
-          // When syncing from URL, do not preserve a potentially stale triggerElement
-          triggerElement: null,
-        }))
-
-        // Prevent background scroll
-        document.body.style.overflow = 'hidden'
-      }
-    }
-    else {
-      // URL says viewer should be closed
-      if (currentViewer.isOpen) {
-        setViewer(prev => ({
-          ...prev,
-          isOpen: false,
-          pendingCloseInstanceId: null,
-          triggerElement: null,
-        }))
-
-        // Restore background scroll
-        document.body.style.overflow = ''
-      }
-    }
-
-    return () => {
-      // Clean up body scroll lock if component unmounts while viewer was open
-      // This is a safety measure, normally closeViewer handles this
-      document.body.style.overflow = ''
-    }
-  }, [location.pathname, photoId, photos])
-}
-
-const useSyncViewerCloseShortcut = () => {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
-        return
-      }
-
-      const currentViewer = getViewer()
-      if (!currentViewer.isOpen || !currentViewer.openInstanceId) {
-        return
-      }
-      if (currentViewer.pendingCloseInstanceId === currentViewer.openInstanceId) {
-        return
-      }
-
-      event.preventDefault()
-
-      setViewer((prev) => {
-        if (!prev.isOpen || !prev.openInstanceId) {
-          return prev
-        }
-        if (prev.pendingCloseInstanceId === prev.openInstanceId) {
-          return prev
-        }
-
-        return {
-          ...prev,
-          pendingCloseInstanceId: prev.openInstanceId,
-        }
-      })
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [])
 }

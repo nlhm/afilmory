@@ -431,7 +431,7 @@ Existing code is not required to migrate immediately; new code must not add to t
 
 ### 13.3 z-index
 
-`PageHeader` (`z-100`), `tooltip/styles.ts` + `CommandPalette` + `photos/[photoId]` (`z-9999`),
+`PageHeader` (`z-100`), `tooltip/styles.ts` + `CommandPalette` + `modules/viewer/PhotoViewerRoute` (`z-9999`),
 `context-menu` (`z-10060` / `z-10061`), `dialog/dialog.tsx` (`z-100000000`). All predate §7.
 
 ### 13.4 Icons

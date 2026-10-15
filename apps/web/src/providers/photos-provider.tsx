@@ -1,9 +1,17 @@
-import { createContext } from 'react'
-
 import type { PhotoManifest } from '~/types/photo'
 
-export const PhotosContext = createContext<PhotoManifest[]>(null!)
+import { PhotoRouteBaseContext, PhotosContext } from './photos-context'
 
-export const PhotosProvider = ({ children, photos }: { children: React.ReactNode; photos: PhotoManifest[] }) => {
-  return <PhotosContext value={photos}>{children}</PhotosContext>
-}
+export const PhotosProvider = ({
+  children,
+  photos,
+  routeBase = '',
+}: {
+  children: React.ReactNode
+  photos: PhotoManifest[]
+  routeBase?: string
+}) => (
+  <PhotoRouteBaseContext value={routeBase}>
+    <PhotosContext value={photos}>{children}</PhotosContext>
+  </PhotoRouteBaseContext>
+)

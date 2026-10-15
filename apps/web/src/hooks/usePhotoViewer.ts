@@ -9,7 +9,7 @@ import { setViewer, viewerAtom } from '~/atoms/viewer'
 import { jotaiStore } from '~/lib/jotai'
 import { trackView } from '~/lib/tracker'
 import { getPhotoDateMs, getRangeEndMs, getRangeStartMs } from '~/modules/gallery/dateRangeUtils'
-import { PhotosContext } from '~/providers/photos-provider'
+import { PhotoRouteBaseContext, PhotosContext } from '~/providers/photos-context'
 
 const data = photoLoader.getPhotos()
 
@@ -166,7 +166,10 @@ export const useContextPhotos = () => {
 }
 
 export const usePhotoViewer = () => {
-  const photos = usePhotos()
+  const contextPhotos = use(PhotosContext)
+  const galleryPhotos = usePhotos()
+  const photos = contextPhotos ?? galleryPhotos
+  const routeBase = use(PhotoRouteBaseContext)
   const navigate = useNavigate()
   const location = useLocation()
   const { photoId: urlPhotoId } = useParams()
@@ -181,7 +184,7 @@ export const usePhotoViewer = () => {
       return viewerState.photoId ? photos.findIndex(p => p.id === viewerState.photoId) : 0
     }
     const index = photos.findIndex(p => p.id === urlPhotoId)
-    return index !== -1 ? index : 0
+    return index
   }, [urlPhotoId, photos, viewerState.photoId])
 
   const openViewer = useCallback(
@@ -201,14 +204,14 @@ export const usePhotoViewer = () => {
       }))
 
       // Navigate to photo URL (creates history entry)
-      navigate(`/photos/${photo.id}${location.search}`)
+      navigate(`${routeBase}/photos/${photo.id}${location.search}`)
 
       // 防止背景滚动
       document.body.style.overflow = 'hidden'
 
       trackView(photo.id)
     },
-    [photos, navigate, location.search],
+    [photos, navigate, location.search, routeBase],
   )
 
   const closeViewer = useCallback(() => {
@@ -226,12 +229,12 @@ export const usePhotoViewer = () => {
       navigate(`/explory${location.search}`)
     }
     else {
-      navigate(`/${location.search}`)
+      navigate(`${routeBase || '/'}${location.search}`)
     }
 
     // 恢复背景滚动
     document.body.style.overflow = ''
-  }, [navigate, location.search, location.pathname])
+  }, [navigate, location.search, location.pathname, routeBase])
 
   const goToIndex = useCallback(
     (index: number) => {
@@ -249,12 +252,12 @@ export const usePhotoViewer = () => {
         }))
 
         // Create history entry for each photo navigation to support browser back/forward
-        navigate(`/photos/${photo.id}${location.search}`)
+        navigate(`${routeBase}/photos/${photo.id}${location.search}`)
 
         trackView(photo.id)
       }
     },
-    [photos, navigate, location.search, urlPhotoId],
+    [photos, navigate, location.search, urlPhotoId, routeBase],
   )
 
   return {
