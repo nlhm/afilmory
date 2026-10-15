@@ -2,6 +2,7 @@ import type { ViewportScaleInput } from './double-click-zoom'
 import {
   computeFillScale,
   computeFitScale,
+  computeOriginalSizeScale,
   resolveDoubleClickZoomStages,
   resolveNextDoubleClickScale,
 } from './double-click-zoom'
@@ -324,6 +325,15 @@ export abstract class ImageViewerEngineBase {
     return computeFillScale(this.getViewportScaleInput())
   }
 
+  protected getOriginalSizeScale(): number {
+    return computeOriginalSizeScale(
+      this.imageWidth,
+      this.imageHeight,
+      this.config.originalWidth,
+      this.config.originalHeight,
+    )
+  }
+
   protected getViewportScaleInput(): ViewportScaleInput {
     return {
       canvasWidth: this.canvasWidth,
@@ -358,7 +368,7 @@ export abstract class ImageViewerEngineBase {
   protected constrainScaleAndPosition() {
     const fitToScreenScale = this.getFitToScreenScale()
     const absoluteMinScale = fitToScreenScale * this.config.minScale
-    const originalSizeScale = 1
+    const originalSizeScale = this.getOriginalSizeScale()
     const userMaxScale = fitToScreenScale * this.config.maxScale
     const effectiveMaxScale = Math.max(userMaxScale, originalSizeScale)
 
@@ -391,7 +401,7 @@ export abstract class ImageViewerEngineBase {
   }
 
   public getScale(): number {
-    return this.scale
+    return this.scale / this.getOriginalSizeScale()
   }
 
   public isInteracting(): boolean {
@@ -437,7 +447,7 @@ export abstract class ImageViewerEngineBase {
 
   protected notifyZoomChange() {
     if (this.onZoomChange) {
-      const originalScale = this.scale
+      const originalScale = this.scale / this.getOriginalSizeScale()
       const fitToScreenScale = this.getFitToScreenScale()
       const relativeScale = this.scale / fitToScreenScale
       this.onZoomChange(originalScale, relativeScale)
@@ -678,8 +688,9 @@ export abstract class ImageViewerEngineBase {
     const fitToScreenScale = this.getFitToScreenScale()
     const absoluteMinScale = fitToScreenScale * this.config.minScale
     const userMaxScale = fitToScreenScale * this.config.maxScale
-    const effectiveMaxScale = Math.max(userMaxScale, 1)
-    const originalSizeScale = Math.max(absoluteMinScale, Math.min(effectiveMaxScale, 1))
+    const nativeScale = this.getOriginalSizeScale()
+    const effectiveMaxScale = Math.max(userMaxScale, nativeScale)
+    const originalSizeScale = Math.max(absoluteMinScale, Math.min(effectiveMaxScale, nativeScale))
 
     const stages = resolveDoubleClickZoomStages({
       fitScale: fitToScreenScale,

@@ -9,6 +9,18 @@
 
 const SCALE_MATCH_EPSILON = 0.01
 
+export function computeOriginalSizeScale(
+  imageWidth: number,
+  imageHeight: number,
+  originalWidth: number,
+  originalHeight: number,
+): number {
+  if ([imageWidth, imageHeight, originalWidth, originalHeight].some(value => !Number.isFinite(value) || value <= 0)) {
+    return 1
+  }
+  return Math.max(originalWidth / imageWidth, originalHeight / imageHeight)
+}
+
 function isSameScale(a: number, b: number): boolean {
   return Math.abs(a / b - 1) < SCALE_MATCH_EPSILON
 }

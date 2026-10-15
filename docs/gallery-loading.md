@@ -8,7 +8,7 @@ The builder writes previews to `apps/web/public/previews/<photoId>.jpg`. Vite co
 
 An incremental manifest build automatically processes photos with missing preview metadata or files. Preview content changes produce a separate `previewDigest`; refreshing a photo must invalidate the preview as well as the thumbnail and original. `--force-thumbnails` also regenerates previews. A deployment must run the manifest builder before packaging static assets.
 
-The viewer loads the preview first and requests the original when the user zooms. On HDR-capable displays, HDR photos also load the original after the preview is available. Downloads use the original URL until the original Blob is loaded. Adjacent-photo preloading targets previews, with two concurrent tasks and a preference for the navigation direction. Changing resolution preserves the viewport.
+The viewer loads the preview first and requests the original when the displayed image needs more physical pixels than the preview provides. It uses the viewport scale and device pixel ratio, allows an 8% margin, and waits 150ms before starting a request. Returning below the threshold or leaving the photo cancels a pending request. Small zooms can therefore stay on the preview, while a large high-density display can request the original at fit. On HDR-capable displays, HDR photos also load the original after the preview is available. Downloads use the original URL until the original Blob is loaded. Adjacent-photo preloading targets previews, with two concurrent tasks and a preference for the navigation direction. Changing resolution preserves the viewport. The double-tap 100% stage and scale indicator use original dimensions even while a preview is displayed.
 
 Shared image loads have independent consumer subscriptions. Cancelling a preload releases only its subscription; an active viewer can keep the download alive. The underlying request is cancelled when its last consumer leaves. Persistent cache hits return immediately and update LRU metadata asynchronously.
 
@@ -31,3 +31,28 @@ An Edge browser check used the production SSR app and a local simulated S3 endpo
 Investigation on 2026-10-15 found a separate cause of perceived zoom stutter: a quickly available original could replace the preview resource while its zoom animation was still running. The old renderer was destroyed mid-animation, leaving the view at an intermediate scale until the replacement loaded. Same-photo resource promotion now waits for the renderer to finish animation, dragging, or pinching. Idle viewers promote immediately, different photos switch immediately, and pending promotions are cancelled when superseded or unmounted.
 
 A temporary probe in an Edge production build confirmed the baseline destroyed the renderer with its animation still active; after the fix destruction occurred after animation completion and fit-to-fill reached its target. Both synthetic runs had frame intervals below 25ms, so these measurements establish an animation interruption rather than a measured main-thread long task on that machine. Three scheduling regression tests cover waiting, immediate idle promotion, and cancellation. Temporary probes and synthetic fixtures are excluded from the final change.
+
+## Browser diagnostics
+
+Open the deployed gallery with `?viewerDiagnostics=1`, for example `https://your-gallery.example/?viewerDiagnostics=1`, then open a photo. Expand the **Viewer diagnostics / 看图诊断** control at the bottom left. Initialization happens at SPA startup, so recording stays enabled during client-side navigation. Reloading without the query parameter disables it.
+
+The panel shows the latest 16 events; **Export report / 导出报告** downloads up to 160 events with browser, viewport, HDR capability and build-commit information. Records remain in the current page's memory and are never automatically sent to a server. Another browser cannot retrieve your session's measurements; export and share a report to investigate a device-specific issue. Resource identifiers retain paths but omit hosts, credentials, query parameters and Blob URLs. Paths can still identify photos.
+
+Event meanings:
+
+- `cache-read`: application persistent-cache lookup and Blob read. `cache: persistent` is a hit; `http` means acquisition proceeds through HTTP.
+- `download`: XHR response-body acquisition, including redirects. An HTTP acquisition can hit the browser's own HTTP cache; `cache: http` does not prove a network transfer. `bytes` is Blob size, not compressed transfer size.
+- `format-processing`: format detection and optional conversion before passing the Blob to the renderer. This is not necessarily native browser decoding time.
+- `load`: one consumer's load time, including shared-request waiting, or an application memory-cache hit.
+- `renderer-image`: renderer initialization, worker startup, Blob read, decoding and overview preparation until texture preparation begins. These parts are grouped rather than individually timed.
+- `texture-prepare`: texture preparation until the engine reports ready. WebGPU includes submitted-work completion; WebGL records CPU submission. This is not a portable GPU-only timer.
+- `renderer-ready`: total renderer setup/load time, including restoration of the saved viewport. It does not assert the exact time pixels appeared on the physical display.
+- `renderer-error`: failed renderer attempt; a WebGPU failure may subsequently recover through WebGL.
+- `promotion-wait`: time a resource replacement waited for the current interaction to finish.
+- `original-request`: resolution or HDR promotion reason. Resolution requests include required physical-pixel dimensions and available preview dimensions.
+- `frame-gap`: a visible-tab animation-frame interval over 34ms; hidden-tab transitions reset its clock. Browser scheduling and diagnostic/automation overhead can also contribute.
+- `long-task`: a browser-reported main-thread task, where the Long Tasks API is supported. Unsupported browsers still report frame gaps.
+
+Times overlap and should not be added together. Diagnostics are off during ordinary browsing; frame monitoring runs only while the viewer is open in an explicitly enabled session. Run the diagnostics and resolution-policy regression tests with `pnpm --filter @afilmory/web test:viewer`.
+
+Validation on 2026-10-15 used a production Vite-to-Next build, synthetic JPEGs, Edge, and a simulated S3 endpoint. At a 390×844 viewport, opening the photo and the first double-click to fill made no original request; the second double-click requested the original at its native dimensions. The report recorded the simulated original download at approximately 1.55 seconds, and its JSON export was validated. At the default desktop high-density viewport, fit required 2283×1712 physical pixels, correctly triggering promotion beyond the 2048×1536 preview. An earlier visit also confirmed a persistent original-cache hit. These are local synthetic checks; actual Vercel/R2 latency and device-specific HDR/HEIC performance require deployed-site validation.

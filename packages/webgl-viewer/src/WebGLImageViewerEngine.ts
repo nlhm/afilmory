@@ -830,7 +830,7 @@ export class WebGLImageViewerEngine extends ImageViewerEngineBase {
     const fitToScreenScale = this.getFitToScreenScale()
     const relativeScale = this.scale / fitToScreenScale
     const userMaxScale = fitToScreenScale * this.config.maxScale
-    const originalSizeScale = 1
+    const originalSizeScale = this.getOriginalSizeScale()
     const effectiveMaxScale = Math.max(userMaxScale, originalSizeScale)
 
     // 计算瓦片系统的内存使用

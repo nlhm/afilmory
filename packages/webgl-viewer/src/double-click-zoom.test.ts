@@ -6,11 +6,28 @@ import { it } from 'vitest'
 import {
   computeFillScale,
   computeFitScale,
+  computeOriginalSizeScale,
   resolveDoubleClickZoomStages,
   resolveNextDoubleClickScale,
 } from './double-click-zoom'
 
 const VIEWPORT = { canvasWidth: 393, canvasHeight: 852 }
+
+it('keeps the 100% stage and reported scale tied to the original when displaying a preview', () => {
+  const native = computeOriginalSizeScale(2000, 1333, 6000, 3999)
+  const previewFit = computeFitScale({ ...VIEWPORT, imageWidth: 2000, imageHeight: 1333 })
+  const originalFit = computeFitScale({ ...VIEWPORT, imageWidth: 6000, imageHeight: 3999 })
+  assert.equal(native, 3)
+  assert.equal(previewFit / native, originalFit)
+  const previewStages = resolveDoubleClickZoomStages({
+    fitScale: previewFit,
+    fillScale: computeFillScale({ ...VIEWPORT, imageWidth: 2000, imageHeight: 1333 }),
+    originalScale: native,
+  })
+  assert.equal(previewStages.at(-1), 3)
+  assert.equal(computeOriginalSizeScale(6000, 3999, 6000, 3999), 1)
+  assert.equal(computeOriginalSizeScale(2000, 1333, 0, 0), 1)
+})
 
 function stagesFor(imageWidth: number, imageHeight: number) {
   const input = { ...VIEWPORT, imageWidth, imageHeight }

@@ -51,6 +51,8 @@ export interface ImageViewerOptions {
   className?: string
   width?: number // 可选的预知图片宽度，用于优化加载
   height?: number // 可选的预知图片高度，用于优化加载
+  originalWidth?: number
+  originalHeight?: number
   initialScale?: number
   minScale?: number
   maxScale?: number
@@ -72,6 +74,14 @@ export interface ImageViewerOptions {
     quality?: 'high' | 'medium' | 'low' | 'unknown',
   ) => void
   debug?: boolean
+}
+
+export interface ViewerPerformanceEvent {
+  stage: 'renderer-image' | 'texture-prepare' | 'renderer-ready' | 'renderer-error' | 'promotion-wait'
+  durationMs: number
+  renderer?: 'webgpu' | 'webgl'
+  resourceWidth?: number
+  resourceHeight?: number
 }
 export interface ImageViewerRef {
   zoomIn: (animated?: boolean) => void

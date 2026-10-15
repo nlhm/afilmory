@@ -1,5 +1,5 @@
 import { clsxm } from '@afilmory/utils'
-import type { ImageViewportState } from '@afilmory/webgl-viewer'
+import type { ImageViewportState, ViewerPerformanceEvent } from '@afilmory/webgl-viewer'
 import { ImageViewer } from '@afilmory/webgl-viewer'
 import { AnimatePresence, m } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -9,6 +9,7 @@ import { useMediaQuery } from 'usehooks-ts'
 import { useShowContextMenu } from '~/atoms/context-menu'
 import { SlidingNumber } from '~/components/ui/number/SlidingNumber'
 import { isMobileDevice } from '~/lib/device-viewport'
+import { viewerDiagnostics } from '~/lib/viewer-diagnostics'
 import { HDRBadge } from '~/modules/media/HDRBadge'
 import { LivePhotoBadge } from '~/modules/media/LivePhotoBadge'
 import type { LivePhotoVideoHandle } from '~/modules/media/LivePhotoVideo'
@@ -25,6 +26,7 @@ import {
   useScaleIndicator,
 } from './hooks'
 import { PhotoRegionsOverlay } from './PhotoRegionsOverlay'
+import { needsOriginalResolution } from './resolution-policy'
 import type { ProgressiveImageProps } from './types'
 
 const loadedThumbnailSrcSet = new Set<string>()
@@ -94,30 +96,55 @@ export const ProgressiveImage = ({
   const hasOverlayViewportRef = useRef(false)
 
   const [wantsOriginal, setWantsOriginal] = useState(false)
+  const originalRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const needsOriginalRef = useRef(false)
+  const resolutionViewportRef = useRef<ImageViewportState | null>(null)
   const [isOriginalLoaded, setIsOriginalLoaded] = useState(false)
   const displaySource = wantsOriginal || !previewSrc ? src : previewSrc
   const isOriginalSource = displaySource === src
   const viewerWidth = isOriginalLoaded ? width : previewWidth
   const viewerHeight = isOriginalLoaded ? height : previewHeight
-  const handleResourceLoaded = useCallback((blob: string | null) => {
-    if (blob) {
-      setIsOriginalLoaded(isOriginalSource)
-      onResourceReady?.()
-    }
-    onBlobSrcChange?.(isOriginalSource ? blob : null)
-  }, [isOriginalSource, onBlobSrcChange, onResourceReady])
-  const handleZoomChange = useCallback((isZoomed: boolean) => {
-    onZoomChange?.(isZoomed)
-    if (isZoomed) {
-      setWantsOriginal(true)
-    }
-  }, [onZoomChange])
+  const handleResourceLoaded = useCallback(
+    (blob: string | null) => {
+      if (blob) {
+        setIsOriginalLoaded(isOriginalSource)
+        onResourceReady?.()
+      }
+      onBlobSrcChange?.(isOriginalSource ? blob : null)
+    },
+    [isOriginalSource, onBlobSrcChange, onResourceReady],
+  )
+  const handleZoomChange = useCallback(
+    (isZoomed: boolean) => {
+      onZoomChange?.(isZoomed)
+    },
+    [onZoomChange],
+  )
   const isHDRSupported = useMediaQuery('(dynamic-range: high)')
   useEffect(() => {
-    if (isActiveImage && isHDR && isHDRSupported && blobSrc) {
+    if (isActiveImage && isHDR && isHDRSupported && blobSrc && !wantsOriginal) {
+      viewerDiagnostics.record(src, { stage: 'original-request', reason: 'hdr' })
       setWantsOriginal(true)
     }
-  }, [blobSrc, isActiveImage, isHDR, isHDRSupported])
+  }, [blobSrc, isActiveImage, isHDR, isHDRSupported, src, wantsOriginal])
+
+  useEffect(
+    () => () => {
+      needsOriginalRef.current = false
+      if (originalRequestTimerRef.current) {
+        clearTimeout(originalRequestTimerRef.current)
+        originalRequestTimerRef.current = null
+      }
+    },
+    [isActiveImage, src, wantsOriginal],
+  )
+
+  const handleViewerPerformance = useCallback(
+    (event: ViewerPerformanceEvent) => {
+      viewerDiagnostics.record(src, event)
+    },
+    [src],
+  )
 
   const resolvedSrc = useMemo(() => {
     if (displaySource.startsWith('/')) {
@@ -141,7 +168,11 @@ export const ProgressiveImage = ({
     setState.setGainMap,
   )
 
-  const { onTransformed } = useScaleIndicator(handleZoomChange, setState.setCurrentScale, setState.setShowScaleIndicator)
+  const { onTransformed } = useScaleIndicator(
+    handleZoomChange,
+    setState.setCurrentScale,
+    setState.setShowScaleIndicator,
+  )
 
   const { handleLongPressStart, handleLongPressEnd } = useLivePhotoControls(hasVideo, isLivePhotoPlaying, livePhotoRef)
 
@@ -220,26 +251,67 @@ export const ProgressiveImage = ({
     onVisualReadyChange?.(isVisualReady)
   }, [isVisualReady, onVisualReadyChange])
 
-  const handleViewportChange = useCallback((viewport: ImageViewportState) => {
-    const overlayFrame = viewportFrameRef.current
-    if (!overlayFrame) {
-      return
-    }
+  const handleViewportChange = useCallback(
+    (viewport: ImageViewportState) => {
+      resolutionViewportRef.current = viewport
+      needsOriginalRef.current
+        = isActiveImage
+          && !wantsOriginal
+          && needsOriginalResolution({
+            viewport,
+            previewWidth: previewWidth ?? 0,
+            previewHeight: previewHeight ?? 0,
+            originalWidth: width ?? 0,
+            originalHeight: height ?? 0,
+            devicePixelRatio: window.devicePixelRatio || 1,
+          })
+      if (needsOriginalRef.current && !originalRequestTimerRef.current) {
+        originalRequestTimerRef.current = setTimeout(() => {
+          originalRequestTimerRef.current = null
+          if (needsOriginalRef.current) {
+            const current = resolutionViewportRef.current!
+            const devicePixelRatio = window.devicePixelRatio || 1
+            viewerDiagnostics.record(src, {
+              stage: 'original-request',
+              reason: 'resolution',
+              resolution: {
+                requiredWidth: Math.round(current.imageWidth * current.scale * devicePixelRatio),
+                requiredHeight: Math.round(current.imageHeight * current.scale * devicePixelRatio),
+                previewWidth: previewWidth ?? 0,
+                previewHeight: previewHeight ?? 0,
+                devicePixelRatio,
+              },
+            })
+            setWantsOriginal(true)
+          }
+        }, 150)
+      }
+      else if (!needsOriginalRef.current && originalRequestTimerRef.current) {
+        clearTimeout(originalRequestTimerRef.current)
+        originalRequestTimerRef.current = null
+      }
 
-    const renderedWidth = viewport.imageWidth * viewport.scale
-    const renderedHeight = viewport.imageHeight * viewport.scale
-    const left = viewport.containerWidth / 2 + viewport.translateX - renderedWidth / 2
-    const top = viewport.containerHeight / 2 + viewport.translateY - renderedHeight / 2
+      const overlayFrame = viewportFrameRef.current
+      if (!overlayFrame) {
+        return
+      }
 
-    overlayFrame.style.width = `${renderedWidth}px`
-    overlayFrame.style.height = `${renderedHeight}px`
-    overlayFrame.style.transform = `translate3d(${left}px, ${top}px, 0)`
+      const renderedWidth = viewport.imageWidth * viewport.scale
+      const renderedHeight = viewport.imageHeight * viewport.scale
+      const left = viewport.containerWidth / 2 + viewport.translateX - renderedWidth / 2
+      const top = viewport.containerHeight / 2 + viewport.translateY - renderedHeight / 2
 
-    if (!hasOverlayViewportRef.current) {
-      hasOverlayViewportRef.current = true
-      setHasOverlayViewport(true)
-    }
-  }, [])
+      overlayFrame.style.width = `${renderedWidth}px`
+      overlayFrame.style.height = `${renderedHeight}px`
+      overlayFrame.style.transform = `translate3d(${left}px, ${top}px, 0)`
+
+      if (!hasOverlayViewportRef.current) {
+        hasOverlayViewportRef.current = true
+        setHasOverlayViewport(true)
+      }
+    },
+    [height, isActiveImage, previewHeight, previewWidth, src, wantsOriginal, width],
+  )
 
   const getViewerCanvas = useCallback(() => {
     const canvas = imageViewerHostRef.current?.querySelector('canvas')
@@ -431,6 +503,8 @@ export const ProgressiveImage = ({
               className="absolute inset-0 h-full w-full"
               width={viewerWidth}
               height={viewerHeight}
+              originalWidth={width}
+              originalHeight={height}
               initialScale={1}
               minScale={minZoom}
               maxScale={maxZoom}
@@ -442,6 +516,7 @@ export const ProgressiveImage = ({
               smooth={true}
               onZoomChange={onTransformed}
               onViewportChange={handleViewportChange}
+              onPerformanceEvent={viewerDiagnostics.enabled ? handleViewerPerformance : undefined}
               onLoadingStateChange={handleImageLoadingStateChange}
               debug={import.meta.env.DEV && !isMobileDevice}
             />

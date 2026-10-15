@@ -12,5 +12,6 @@ export type {
   PanningConfig,
   PinchConfig,
   VelocityAnimationConfig,
+  ViewerPerformanceEvent,
   WheelConfig,
 } from './interface'
