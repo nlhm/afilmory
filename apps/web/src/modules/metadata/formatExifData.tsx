@@ -3,6 +3,7 @@ import { EllipsisHorizontalTextWithTooltip } from '@afilmory/ui'
 import type { FC } from 'react'
 
 import { i18nAtom } from '~/i18n'
+import { parseFocalLength } from '~/lib/exif-focal-length'
 import { jotaiStore } from '~/lib/jotai'
 
 // Helper function to clean up EXIF values by removing unnecessary characters
@@ -190,10 +191,10 @@ export const formatExifData = (exif: PickedExif | null) => {
   const tzSource = exif.tzSource || null
 
   // 等效焦距 (35mm)
-  const focalLength35mm = exif.FocalLengthIn35mmFormat ? Number.parseInt(exif.FocalLengthIn35mmFormat) : null
+  const focalLength35mm = parseFocalLength(exif.FocalLengthIn35mmFormat)
 
   // 实际焦距
-  const focalLength = exif.FocalLength ? Number.parseInt(exif.FocalLength) : null
+  const focalLength = parseFocalLength(exif.FocalLength)
 
   // ISO
   const iso = exif.ISO
