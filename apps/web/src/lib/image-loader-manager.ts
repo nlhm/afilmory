@@ -10,6 +10,7 @@ import { cacheProtectedMediaBlob, getProtectedMediaBlob } from '~/lib/protected-
 import type { ResourceSubscription } from '~/lib/shared-resource-pool'
 import { SharedResourcePool } from '~/lib/shared-resource-pool'
 import { convertMovToMp4, needsVideoConversion } from '~/lib/video-converter'
+import { viewerDiagnostics } from '~/lib/viewer-diagnostics'
 import type { VideoSource } from '~/modules/viewer/types'
 
 export interface LoadingState {
@@ -116,40 +117,57 @@ export class ImageLoaderManager {
 
   async loadImage(src: string, callbacks: LoadingCallbacks = {}): Promise<ImageLoadResult> {
     this.isCancelled = false
+    const started = performance.now()
 
     const memoryCachedResult = regularImageCache.get(generateRegularImageCacheKey(src))
     if (memoryCachedResult) {
       callbacks.onLoadingStateUpdate?.({ isVisible: false })
+      viewerDiagnostics.record(src, {
+        stage: 'load',
+        cache: 'memory',
+        durationMs: performance.now() - started,
+        bytes: memoryCachedResult.originalSize,
+      })
       return { blobSrc: memoryCachedResult.blobSrc }
     }
 
-    const subscription = imageLoads.subscribe(src, async (signal, publish) => {
-      const loader = new ImageLoaderManager()
-      const cancel = () => loader.cleanup()
-      signal.addEventListener('abort', cancel, { once: true })
-      try {
-        signal.throwIfAborted()
-        return await loader.loadImageUncached(src, {
-          onProgress: progress => publish({ type: 'progress', progress }),
-          onLoadingStateUpdate: state => publish({ type: 'state', state }),
-        })
-      }
-      finally {
-        signal.removeEventListener('abort', cancel)
-      }
-    }, (update) => {
-      if (update.type === 'progress') {
-        callbacks.onProgress?.(update.progress)
-      }
-      else {
-        callbacks.onLoadingStateUpdate?.(update.state)
-      }
-    })
+    const subscription = imageLoads.subscribe(
+      src,
+      async (signal, publish) => {
+        const loader = new ImageLoaderManager()
+        const cancel = () => loader.cleanup()
+        signal.addEventListener('abort', cancel, { once: true })
+        try {
+          signal.throwIfAborted()
+          return await loader.loadImageUncached(src, {
+            onProgress: progress => publish({ type: 'progress', progress }),
+            onLoadingStateUpdate: state => publish({ type: 'state', state }),
+          })
+        }
+        finally {
+          signal.removeEventListener('abort', cancel)
+        }
+      },
+      (update) => {
+        if (update.type === 'progress') {
+          callbacks.onProgress?.(update.progress)
+        }
+        else {
+          callbacks.onLoadingStateUpdate?.(update.state)
+        }
+      },
+    )
     this.subscription = subscription
     try {
-      return await subscription.promise
+      const result = await subscription.promise
+      viewerDiagnostics.record(src, { stage: 'load', durationMs: performance.now() - started })
+      return result
     }
     catch (error) {
+      viewerDiagnostics.record(src, {
+        stage: error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'error',
+        durationMs: performance.now() - started,
+      })
       if (!(error instanceof Error && error.name === 'AbortError')) {
         callbacks.onError?.()
       }
@@ -167,7 +185,14 @@ export class ImageLoaderManager {
 
     onLoadingStateUpdate?.({ isVisible: true })
 
+    const cacheStarted = performance.now()
     const persistedBlob = await getProtectedMediaBlob(src)
+    viewerDiagnostics.record(src, {
+      stage: 'cache-read',
+      durationMs: performance.now() - cacheStarted,
+      cache: persistedBlob ? 'persistent' : 'http',
+      bytes: persistedBlob?.size,
+    })
     if (this.isCancelled) {
       throw new DOMException('Image load aborted', 'AbortError')
     }
@@ -176,6 +201,7 @@ export class ImageLoaderManager {
     }
 
     return new Promise((resolve, reject) => {
+      const downloadStarted = performance.now()
       this.currentLoadReject = reject
       const xhr = new XMLHttpRequest()
       xhr.open('GET', src)
@@ -187,6 +213,12 @@ export class ImageLoaderManager {
           try {
             // 验证响应是否为图片
             const blob = xhr.response as Blob
+            viewerDiagnostics.record(src, {
+              stage: 'download',
+              cache: 'http',
+              durationMs: performance.now() - downloadStarted,
+              bytes: blob.size,
+            })
             if (!(await this.isValidImageBlob(blob))) {
               onLoadingStateUpdate?.({
                 isVisible: false,
@@ -355,6 +387,7 @@ export class ImageLoaderManager {
     callbacks: LoadingCallbacks,
   ): Promise<ImageLoadResult> {
     const { onError: _onError, onLoadingStateUpdate } = callbacks
+    const started = performance.now()
 
     try {
       // 使用策略模式检测并转换图像
@@ -397,6 +430,13 @@ export class ImageLoaderManager {
         _onError?.()
         throw conversionError
       }
+    }
+    finally {
+      viewerDiagnostics.record(originalUrl, {
+        stage: 'format-processing',
+        durationMs: performance.now() - started,
+        bytes: blob.size,
+      })
     }
   }
 

@@ -1,4 +1,5 @@
 import './styles/index.css'
+import './lib/viewer-diagnostics'
 
 import { Suspense } from 'react'
 import { createRoot } from 'react-dom/client'

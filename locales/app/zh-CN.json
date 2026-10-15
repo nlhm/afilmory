@@ -460,5 +460,8 @@
   "video.conversion.webcodecs.not.supported": "此浏览器不支持 WebCodecs",
   "video.format.mov.not.supported": "浏览器不支持 MOV 格式，需要转换",
   "video.format.mov.supported": "浏览器原生支持 MOV 格式，跳过转换",
-  "video.motion-photo.extracting": "正在提取嵌入的视频..."
+  "video.motion-photo.extracting": "正在提取嵌入的视频...",
+  "viewer.diagnostics.description": "记录仅保存在本次浏览会话中。各阶段耗时可能重叠，长帧也包含浏览器调度影响。可导出报告分析加载与缩放。",
+  "viewer.diagnostics.export": "导出报告",
+  "viewer.diagnostics.title": "看图诊断"
 }

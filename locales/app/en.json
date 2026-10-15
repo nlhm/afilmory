@@ -460,5 +460,8 @@
   "video.conversion.webcodecs.not.supported": "WebCodecs is not supported in this browser",
   "video.format.mov.not.supported": "Browser does not support MOV format, conversion required",
   "video.format.mov.supported": "Browser natively supports MOV format, skipping conversion",
-  "video.motion-photo.extracting": "Extracting embedded video..."
+  "video.motion-photo.extracting": "Extracting embedded video...",
+  "viewer.diagnostics.description": "Local session records. Times may overlap; frame gaps include browser scheduling. Export the report to investigate loading and zoom.",
+  "viewer.diagnostics.export": "Export report",
+  "viewer.diagnostics.title": "Viewer diagnostics"
 }

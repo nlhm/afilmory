@@ -41,6 +41,7 @@ import { MobilePhotoInspectorSheet } from './MobilePhotoInspectorSheet'
 import { getRenderablePhotoRegions } from './photo-region-bounds'
 import { ProgressiveImage } from './ProgressiveImage'
 import { usePhotoPreloader } from './usePhotoPreloader'
+import { ViewerDiagnosticsPanel } from './ViewerDiagnosticsPanel'
 
 interface PhotoViewerProps {
   photos: PhotoManifest[]
@@ -322,12 +323,9 @@ export const PhotoViewer = ({
   }, [])
 
   // 处理 blobSrc 变化
-  const handleBlobSrcChange = useCallback(
-    (blobSrc: string | null) => {
-      setCurrentBlobSrc(blobSrc)
-    },
-    [],
-  )
+  const handleBlobSrcChange = useCallback((blobSrc: string | null) => {
+    setCurrentBlobSrc(blobSrc)
+  }, [])
 
   const handleResourceReady = useCallback(() => {
     setReadyPhotoId(currentPhoto?.id ?? null)
@@ -399,6 +397,7 @@ export const PhotoViewer = ({
 
   return (
     <>
+      <ViewerDiagnosticsPanel active={isOpen} source={currentPhoto.originalUrl} />
       <AnimatePresence>
         {shouldRenderBackdrop && (
           <m.div
