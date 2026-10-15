@@ -319,6 +319,9 @@ export const PhotoViewer = ({
   const loadingIndicatorRef = useRef<LoadingIndicatorRef>(null)
   // 处理图片缩放状态变化
   const handleZoomChange = useCallback((isZoomed: boolean) => {
+    if (isZoomed && swiperRef.current) {
+      swiperRef.current.allowTouchMove = false
+    }
     setIsImageZoomed(isZoomed)
   }, [])
 

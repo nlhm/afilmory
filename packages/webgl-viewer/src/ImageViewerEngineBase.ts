@@ -10,6 +10,8 @@ import type { LoadingState } from './enum'
 import type { ImageViewerOptions, ImageViewportState } from './interface'
 import { projectImageViewport } from './viewport-projection'
 
+const FIT_SNAP_RATIO = 1.08
+
 export abstract class ImageViewerEngineBase {
   protected destroyed = false
   private animationFrameId: number | null = null
@@ -77,6 +79,9 @@ export abstract class ImageViewerEngineBase {
   destroy() {
     this.destroyed = true
     this.isAnimating = false
+    this.isDragging = false
+    this.pinchGestureActive = false
+    this.lastTouchDistance = 0
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId)
     }
@@ -123,6 +128,8 @@ export abstract class ImageViewerEngineBase {
 
   protected lastTouchDistance = 0
 
+  protected pinchGestureActive = false
+
   protected lastDoubleClickTime = 0
 
   protected lastTouchTime = 0
@@ -151,7 +158,7 @@ export abstract class ImageViewerEngineBase {
 
   protected config: Required<ImageViewerOptions>
 
-  protected onZoomChange?: (originalScale: number, relativeScale: number) => void
+  protected onZoomChange?: ImageViewerOptions['onZoomChange']
 
   protected onViewportChange?: (viewport: ImageViewportState) => void
 
@@ -405,7 +412,7 @@ export abstract class ImageViewerEngineBase {
   }
 
   public isInteracting(): boolean {
-    return this.isAnimating || this.isDragging || this.lastTouchDistance > 0
+    return this.isAnimating || this.isDragging || this.pinchGestureActive
   }
 
   public updateCallbacks({
@@ -450,7 +457,7 @@ export abstract class ImageViewerEngineBase {
       const originalScale = this.scale / this.getOriginalSizeScale()
       const fitToScreenScale = this.getFitToScreenScale()
       const relativeScale = this.scale / fitToScreenScale
-      this.onZoomChange(originalScale, relativeScale)
+      this.onZoomChange(originalScale, relativeScale, this.pinchGestureActive)
     }
   }
 
@@ -593,6 +600,20 @@ export abstract class ImageViewerEngineBase {
     }
 
     if (e.touches.length === 1) {
+      if (this.pinchGestureActive) {
+        return
+      }
+      const fit = this.getFitToScreenScale()
+      if (
+        this.scale <= fit * FIT_SNAP_RATIO
+        && (this.scale !== fit || this.translateX !== 0 || this.translateY !== 0)
+      ) {
+        this.scale = fit
+        this.translateX = 0
+        this.translateY = 0
+        this.render()
+        this.notifyZoomChange()
+      }
       const touch = e.touches[0]
       const now = Date.now()
       if (
@@ -618,15 +639,21 @@ export abstract class ImageViewerEngineBase {
     }
     else if (e.touches.length === 2 && !this.config.pinch.disabled) {
       this.isDragging = false
+      this.pinchGestureActive = true
+      this.lastTouchTime = 0
       const touch1 = e.touches[0]
       const touch2 = e.touches[1]
       this.lastTouchDistance = Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY)
+      this.notifyZoomChange()
     }
   }
 
   protected handleTouchMove(e: TouchEvent) {
-    if (e.touches.length === 1 && this.isDragging && !this.config.panning.disabled) {
+    if (e.touches.length === 1 && this.isDragging && !this.pinchGestureActive && !this.config.panning.disabled) {
       e.preventDefault()
+      if (Math.hypot(e.touches[0].clientX - this.lastTouchX, e.touches[0].clientY - this.lastTouchY) > 10) {
+        this.lastTouchTime = 0
+      }
 
       const deltaX = e.touches[0].clientX - this.lastMouseX
       const deltaY = e.touches[0].clientY - this.lastMouseY
@@ -648,7 +675,11 @@ export abstract class ImageViewerEngineBase {
       const distance = Math.hypot(touch2.clientX - touch1.clientX, touch2.clientY - touch1.clientY)
 
       if (this.lastTouchDistance > 0) {
-        const scaleFactor = distance / this.lastTouchDistance
+        const fit = this.getFitToScreenScale()
+        const minimum = fit * Math.max(1, this.config.minScale)
+        const maximum = Math.max(fit * this.config.maxScale, this.getOriginalSizeScale())
+        const nextScale = Math.max(minimum, Math.min(maximum, (this.scale * distance) / this.lastTouchDistance))
+        const scaleFactor = nextScale / this.scale
         const centerX = (touch1.clientX + touch2.clientX) / 2
         const centerY = (touch1.clientY + touch2.clientY) / 2
 
@@ -660,9 +691,31 @@ export abstract class ImageViewerEngineBase {
     }
   }
 
-  protected handleTouchEnd(_e: TouchEvent) {
+  protected handleTouchEnd(e: TouchEvent) {
     this.isDragging = false
     this.lastTouchDistance = 0
+    if (e.type === 'touchcancel') {
+      this.lastTouchTime = 0
+    }
+    if (!this.pinchGestureActive) {
+      return
+    }
+    if (e.type !== 'touchcancel' && e.touches.length > 0) {
+      if (e.touches.length === 2) {
+        const [first, second] = Array.from(e.touches)
+        this.lastTouchDistance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+      }
+      return
+    }
+    this.pinchGestureActive = false
+    this.lastTouchTime = 0
+    const fit = this.getFitToScreenScale()
+    if (this.imageLoaded && this.scale <= fit * FIT_SNAP_RATIO) {
+      this.startAnimation(fit, 0, 0, this.config.doubleClick.animationTime)
+    }
+    else {
+      this.notifyZoomChange()
+    }
   }
 
   protected handleTouchDoubleTap(clientX: number, clientY: number) {
@@ -714,7 +767,7 @@ export abstract class ImageViewerEngineBase {
     const newScale = this.scale * scaleFactor
     const fitToScreenScale = this.getFitToScreenScale()
     const absoluteMinScale = fitToScreenScale * this.config.minScale
-    const originalSizeScale = 1
+    const originalSizeScale = this.getOriginalSizeScale()
     const userMaxScale = fitToScreenScale * this.config.maxScale
     const effectiveMaxScale = Math.max(userMaxScale, originalSizeScale)
 

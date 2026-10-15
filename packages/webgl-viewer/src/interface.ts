@@ -65,7 +65,7 @@ export interface ImageViewerOptions {
   smooth?: boolean
   alignmentAnimation?: AlignmentAnimationConfig
   velocityAnimation?: VelocityAnimationConfig
-  onZoomChange?: (originalScale: number, relativeScale: number) => void
+  onZoomChange?: (originalScale: number, relativeScale: number, isPinching?: boolean) => void
   onViewportChange?: (viewport: ImageViewportState) => void
   onImageCopied?: () => void
   onLoadingStateChange?: (

@@ -21,7 +21,7 @@
     "test:privacy": "node --import tsx --test src/lib/gallery-access.test.ts src/lib/protected-media-cache.test.ts plugins/vite/feed-sitemap.test.ts",
     "type-check": "tsc --noEmit",
     "web": "vite",
-    "test:viewer": "vitest run src/lib/viewer-diagnostics.test.ts src/modules/viewer/resolution-policy.test.ts"
+    "test:viewer": "vitest run src/lib/viewer-diagnostics.test.ts src/modules/viewer/resolution-policy.test.ts src/modules/viewer/mobile-gesture-handoff.test.ts"
   },
   "dependencies": {
     "@6over3/zeroperl-ts": "1.0.10",

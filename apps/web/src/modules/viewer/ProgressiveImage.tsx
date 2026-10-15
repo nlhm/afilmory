@@ -351,7 +351,7 @@ export const ProgressiveImage = ({
   )
 
   const dispatchTouchEventToCanvas = useCallback(
-    (type: 'touchstart' | 'touchmove' | 'touchend', event: React.TouchEvent<HTMLDivElement>) => {
+    (type: 'touchstart' | 'touchmove' | 'touchend' | 'touchcancel', event: React.TouchEvent<HTMLDivElement>) => {
       const canvas = getViewerCanvas()
       if (!canvas || !shouldForwardViewerEvent(event.target, canvas) || typeof TouchEvent === 'undefined') {
         return
@@ -488,6 +488,7 @@ export const ProgressiveImage = ({
             onTouchStartCapture={event => dispatchTouchEventToCanvas('touchstart', event)}
             onTouchMoveCapture={event => dispatchTouchEventToCanvas('touchmove', event)}
             onTouchEndCapture={event => dispatchTouchEventToCanvas('touchend', event)}
+            onTouchCancelCapture={event => dispatchTouchEventToCanvas('touchcancel', event)}
           >
             <ImageViewer
               src={blobSrc}

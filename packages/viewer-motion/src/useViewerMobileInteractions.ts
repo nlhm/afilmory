@@ -49,7 +49,7 @@ export const useViewerMobileInteractions = ({
   }, [])
 
   const stopAnimations = useCallback(() => {
-    animationControlsRef.current.forEach((animation) => animation.stop())
+    animationControlsRef.current.forEach(animation => animation.stop())
     animationControlsRef.current = []
   }, [])
 
@@ -105,7 +105,9 @@ export const useViewerMobileInteractions = ({
   const settleInspector = useCallback(
     (open: boolean, velocity = 0) => {
       stopAnimations()
-      if (isClosingRef.current) return
+      if (isClosingRef.current) {
+        return
+      }
       const clampedVelocity = clamp(velocity, -2.2, 2.2)
       const settleVelocity = open ? Math.max(clampedVelocity, 0) : Math.min(clampedVelocity, 0)
 
@@ -123,7 +125,9 @@ export const useViewerMobileInteractions = ({
 
   const dismissWithThrow = useCallback(
     (velocityX: number, velocityY: number) => {
-      if (isClosingRef.current) return
+      if (isClosingRef.current) {
+        return
+      }
 
       isClosingRef.current = true
       setIsInspectorVisible(false)
@@ -183,8 +187,19 @@ export const useViewerMobileInteractions = ({
   }, [inspectorProgress, settleInspector])
 
   const bindStage = useDrag(
-    ({ active, axis, event, first, last, movement: [mx, my], velocity: [vx, vy], direction: [dx, dy], memo }) => {
-      if (!enabled || isImageZoomed || isClosingRef.current) {
+    ({
+      active,
+      axis,
+      event,
+      first,
+      last,
+      touches,
+      movement: [mx, my],
+      velocity: [vx, vy],
+      direction: [dx, dy],
+      memo,
+    }) => {
+      if (!enabled || isClosingRef.current) {
         if (last) {
           setIsVerticalGestureActive(false)
         }
@@ -195,6 +210,14 @@ export const useViewerMobileInteractions = ({
         inspectorPixels: inspectorProgress.get() * inspectorRevealDistance,
         startedWithInspectorOpen: inspectorProgress.get() > 0.02,
         ignore: false,
+      }
+
+      if (isImageZoomed || touches > 1 || ('touches' in event && (event as TouchEvent).touches.length > 1)) {
+        if (!start.ignore) {
+          setIsVerticalGestureActive(false)
+          settleInspector(start.startedWithInspectorOpen)
+        }
+        return { ...start, ignore: true }
       }
 
       if (first && event.target instanceof HTMLElement) {
@@ -235,11 +258,13 @@ export const useViewerMobileInteractions = ({
           inspectorProgress.set(clamp(nextInspectorPixels / inspectorRevealDistance, 0, 1))
           dismissX.set(0)
           dismissY.set(0)
-        } else if (nextInspectorPixels > 0) {
+        }
+        else if (nextInspectorPixels > 0) {
           inspectorProgress.set(clamp(nextInspectorPixels / inspectorRevealDistance, 0, 1))
           dismissX.set(0)
           dismissY.set(0)
-        } else {
+        }
+        else {
           const nextDismissY = clamp(-nextInspectorPixels, 0, dismissTravel)
           const dismissRatio = nextDismissY / Math.max(dismissTravel, 1)
 
@@ -251,8 +276,8 @@ export const useViewerMobileInteractions = ({
 
       if (last) {
         setIsVerticalGestureActive(false)
-        const startedWithInspectorOpen =
-          start.startedWithInspectorOpen || start.inspectorPixels > 0 || inspectorProgress.get() > 0.02
+        const startedWithInspectorOpen
+          = start.startedWithInspectorOpen || start.inspectorPixels > 0 || inspectorProgress.get() > 0.02
         const inspectorReleaseVelocity = -dy * vy
 
         if (startedWithInspectorOpen) {
@@ -296,8 +321,7 @@ export const useViewerMobileInteractions = ({
   const inspectorVisualProgress = useTransform(() => easeOutCubic(inspectorClampedProgress.get()))
   const dismissVisualProgress = useTransform(() => easeOutQuad(dismissProgress.get()))
   const viewerScale = useTransform(() =>
-    clamp(1 - inspectorVisualProgress.get() * 0.022 - dismissVisualProgress.get() * 0.13, 0.8, 1),
-  )
+    clamp(1 - inspectorVisualProgress.get() * 0.022 - dismissVisualProgress.get() * 0.13, 0.8, 1))
   const viewerRotate = useTransform(
     () => (dismissX.get() / Math.max(viewportWidth, 1)) * (4.5 + dismissVisualProgress.get() * 2.5),
   )
@@ -306,21 +330,17 @@ export const useViewerMobileInteractions = ({
   )
   const viewerBorderRadius = useTransform(() => inspectorVisualProgress.get() * 14 + dismissVisualProgress.get() * 22)
   const backdropOpacity = useTransform(() =>
-    clamp(1 - dismissVisualProgress.get() * 0.84 - inspectorVisualProgress.get() * 0.08, 0.08, 1),
-  )
+    clamp(1 - dismissVisualProgress.get() * 0.84 - inspectorVisualProgress.get() * 0.08, 0.08, 1))
   const chromeOpacity = useTransform(() =>
-    clamp(1 - inspectorVisualProgress.get() * 0.92 - dismissVisualProgress.get() * 0.52, 0, 1),
-  )
+    clamp(1 - inspectorVisualProgress.get() * 0.92 - dismissVisualProgress.get() * 0.52, 0, 1))
   const chromeY = useTransform(
     () => dismissY.get() * 0.08 - inspectorVisualProgress.get() * 12 - dismissVisualProgress.get() * 6,
   )
   const thumbnailsOpacity = useTransform(() =>
-    clamp(1 - inspectorVisualProgress.get() * 1.05 - dismissVisualProgress.get() * 0.58, 0, 1),
-  )
+    clamp(1 - inspectorVisualProgress.get() * 1.05 - dismissVisualProgress.get() * 0.58, 0, 1))
   const thumbnailsY = useTransform(() => inspectorVisualProgress.get() * 18 + dismissVisualProgress.get() * 10)
   const stageHintOpacity = useTransform(() =>
-    clamp(0.42 - inspectorVisualProgress.get() * 0.66 - dismissVisualProgress.get() * 0.54, 0, 0.42),
-  )
+    clamp(0.42 - inspectorVisualProgress.get() * 0.66 - dismissVisualProgress.get() * 0.54, 0, 0.42))
   const stageHintY = useTransform(() => inspectorVisualProgress.get() * 10 + dismissVisualProgress.get() * 12)
 
   return {

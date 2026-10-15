@@ -190,8 +190,8 @@ export const useScaleIndicator = (
 
   // WebGL Image Viewer 的缩放变化处理
   const onTransformed = useCallback(
-    (originalScale: number, relativeScale: number) => {
-      const isZoomed = Math.abs(relativeScale - 1) > 0.01
+    (originalScale: number, relativeScale: number, isPinching = false) => {
+      const isZoomed = isPinching || relativeScale > 1.01
       handleScaleChange(originalScale, isZoomed)
     },
     [handleScaleChange],
@@ -207,11 +207,14 @@ export const useLivePhotoControls = (
 ) => {
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  useEffect(() => () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current)
-    }
-  }, [])
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
+    },
+    [],
+  )
 
   const handleLongPressStart = useCallback(
     (event?: React.SyntheticEvent) => {
@@ -281,7 +284,12 @@ export const useImageViewerLoadingState = (loadingIndicatorRef: React.RefObject<
   return handleImageLoadingStateChange
 }
 
-export const createContextMenuItems = (blobSrc: string, originalSrc: string, alt: string, t: TFunction<'app', undefined>) => [
+export const createContextMenuItems = (
+  blobSrc: string,
+  originalSrc: string,
+  alt: string,
+  t: TFunction<'app', undefined>,
+) => [
   new MenuItemText({
     label: t('photo.copy.image'),
     click: async () => {
